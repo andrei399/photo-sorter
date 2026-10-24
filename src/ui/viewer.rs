@@ -1,8 +1,9 @@
 //! Layout C: photo on black, a bottom panel with controls and a ±5 filmstrip.
 
 use crate::app::PhotoSorterApp;
+use crate::imaging::raw_preview::is_raw_file;
 use crate::models::settings::{Action, KeyCombo};
-use crate::processor::photo_folder::PhotoFolder;
+use crate::processor::photo_folder::{Photo, PhotoFolder};
 use crate::ui::palette::*;
 use crate::ui::sessions;
 use egui::{
@@ -79,21 +80,36 @@ fn controls_row(ui: &mut egui::Ui, app: &mut PhotoSorterApp, photo_folder: &Phot
         },
     );
 
-    let label = match photo_folder.photos.get(app.index) {
-        Some(photo) => format!(
-            "{} · {} / {}",
-            photo.file_name,
-            app.index + 1,
-            photo_folder.photos.len()
-        ),
-        None => "No photos in this folder".to_owned(),
-    };
+    let mut label = egui::text::LayoutJob::default();
+    let muted = egui::TextFormat::simple(FontId::proportional(13.0), MUTED_TEXT);
+    match photo_folder.photos.get(app.index) {
+        Some(photo) => {
+            label.append(
+                &format!(
+                    "{} · {} / {}",
+                    photo.file_name,
+                    app.index + 1,
+                    photo_folder.photos.len()
+                ),
+                0.0,
+                muted,
+            );
+            if let Some(badge) = file_types_badge(photo) {
+                let chip = egui::TextFormat {
+                    background: CHIP_FILL,
+                    ..egui::TextFormat::simple(FontId::proportional(11.0), TEXT)
+                };
+                label.append(&format!(" {badge} "), 8.0, chip);
+            }
+        }
+        None => label.append("No photos in this folder", 0.0, muted),
+    }
     ui.scope_builder(
         UiBuilder::new()
             .max_rect(center)
             .layout(Layout::centered_and_justified(egui::Direction::LeftToRight)),
         |ui| {
-            ui.label(egui::RichText::new(label).size(13.0).color(MUTED_TEXT));
+            ui.label(label);
         },
     );
 
@@ -115,6 +131,26 @@ fn controls_row(ui: &mut egui::Ui, app: &mut PhotoSorterApp, photo_folder: &Phot
             }
         },
     );
+}
+
+/// `JPG+RAW+XMP`: what favouriting this shot will copy. Plain single JPEGs get no badge.
+fn file_types_badge(photo: &Photo) -> Option<String> {
+    if photo.companions.is_empty() && !is_raw_file(&photo.path) {
+        return None;
+    }
+    let mut labels: Vec<String> = Vec::new();
+    for file in std::iter::once(&photo.path).chain(&photo.companions) {
+        let extension = file.extension().and_then(|e| e.to_str()).unwrap_or_default();
+        let label = match extension.to_ascii_uppercase().as_str() {
+            _ if is_raw_file(file) => "RAW".to_owned(),
+            "JPEG" => "JPG".to_owned(),
+            other => other.to_owned(),
+        };
+        if !labels.contains(&label) {
+            labels.push(label);
+        }
+    }
+    Some(labels.join("+"))
 }
 
 enum StarState {

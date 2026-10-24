@@ -1,8 +1,12 @@
 #![allow(dead_code)]
 
+pub mod raw_fixtures;
+
 use photo_sorter::core::{Command, CoreHandle, Event, spawn_core_with_trash};
+use photo_sorter::models::session::SessionId;
 use photo_sorter::models::settings::Settings;
 use photo_sorter::models::state::PersistedState;
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 use tempfile::TempDir;
@@ -182,4 +186,43 @@ pub fn jpeg_folder(count: usize) -> TempDir {
         .unwrap();
     }
     folder
+}
+
+pub fn photo_folder_with(names_and_bytes: &[(&str, &[u8])]) -> tempfile::TempDir {
+    let folder = tempfile::tempdir().unwrap();
+    for (name, bytes) in names_and_bytes {
+        fs::write(folder.path().join(name), bytes).unwrap();
+    }
+    folder
+}
+
+/// Returns the new session's id after consuming SessionsChanged + FavouritesOfActive.
+pub fn create_session(core: &TestCore, name: &str) -> SessionId {
+    core.send(Command::CreateSession {
+        name: name.into(),
+        dir: None,
+    });
+    let Event::SessionsChanged { active: Some(id), .. } = core.expect_event() else {
+        panic!("expected SessionsChanged")
+    };
+    assert!(matches!(core.expect_event(), Event::FavouritesOfActive { session_id: Some(s), .. } if s == id));
+    id
+}
+
+pub fn toggle(core: &TestCore, source: &Path) -> Event {
+    core.send(Command::ToggleFavourite(source.to_path_buf()));
+    let event = core.expect_event();
+    if !matches!(event, Event::FavouriteFailed { .. }) {
+        assert!(matches!(core.expect_event(), Event::SessionsChanged { .. }));
+    }
+    event
+}
+
+pub fn files_in(dir: &Path) -> Vec<String> {
+    let mut names: Vec<String> = fs::read_dir(dir)
+        .unwrap()
+        .map(|e| e.unwrap().file_name().into_string().unwrap())
+        .collect();
+    names.sort();
+    names
 }

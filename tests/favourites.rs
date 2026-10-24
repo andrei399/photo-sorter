@@ -1,50 +1,12 @@
 mod common;
 
-use common::{TestCore, failing_trash, restart, test_core, test_core_with_trash};
+use common::{
+    create_session, failing_trash, files_in, photo_folder_with, restart, test_core, test_core_with_trash, toggle,
+};
 use photo_sorter::core::{Command, Event};
 use photo_sorter::error::AppError;
-use photo_sorter::models::session::SessionId;
 use std::fs;
 use std::path::{Path, PathBuf};
-
-fn photo_folder_with(names_and_bytes: &[(&str, &[u8])]) -> tempfile::TempDir {
-    let folder = tempfile::tempdir().unwrap();
-    for (name, bytes) in names_and_bytes {
-        fs::write(folder.path().join(name), bytes).unwrap();
-    }
-    folder
-}
-
-/// Returns the new session's id after consuming SessionsChanged + FavouritesOfActive.
-fn create_session(core: &TestCore, name: &str) -> SessionId {
-    core.send(Command::CreateSession {
-        name: name.into(),
-        dir: None,
-    });
-    let Event::SessionsChanged { active: Some(id), .. } = core.expect_event() else {
-        panic!("expected SessionsChanged")
-    };
-    assert!(matches!(core.expect_event(), Event::FavouritesOfActive { session_id: Some(s), .. } if s == id));
-    id
-}
-
-fn toggle(core: &TestCore, source: &Path) -> Event {
-    core.send(Command::ToggleFavourite(source.to_path_buf()));
-    let event = core.expect_event();
-    if !matches!(event, Event::FavouriteFailed { .. }) {
-        assert!(matches!(core.expect_event(), Event::SessionsChanged { .. }));
-    }
-    event
-}
-
-fn files_in(dir: &Path) -> Vec<String> {
-    let mut names: Vec<String> = fs::read_dir(dir)
-        .unwrap()
-        .map(|e| e.unwrap().file_name().into_string().unwrap())
-        .collect();
-    names.sort();
-    names
-}
 
 #[test]
 fn favourite_copies_photo_into_session_folder_and_persists() {

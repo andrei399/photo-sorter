@@ -145,7 +145,7 @@ fn toggle_favourite(store: &mut Store, source: PathBuf, move_to_trash: MoveToTra
                 sessions_changed(store),
             ]
         }
-        Ok(ToggleOutcome::Unfavourited { kept_file }) => {
+        Ok(ToggleOutcome::Unfavourited { kept_files_warning }) => {
             let mut events = vec![
                 Event::FavouriteToggled {
                     source,
@@ -153,7 +153,7 @@ fn toggle_favourite(store: &mut Store, source: PathBuf, move_to_trash: MoveToTra
                 },
                 sessions_changed(store),
             ];
-            events.extend(kept_file.map(|message| Event::Error(AppError::Io(message))));
+            events.extend(kept_files_warning.map(|message| Event::Error(AppError::Io(message))));
             events
         }
         Err(error) => vec![Event::FavouriteFailed { source, error }],

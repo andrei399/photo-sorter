@@ -27,4 +27,13 @@ pub struct Session {
 pub struct Favourite {
     /// Name inside the session dir; differs from the source name after a collision (`IMG_0001 (2).JPG`).
     pub file_name: String,
+    /// The shot's RAW and sidecar files copied along, named inside the session dir.
+    #[serde(default)]
+    pub companion_file_names: Vec<String>,
+}
+
+impl Favourite {
+    pub fn file_names(&self) -> impl Iterator<Item = &String> {
+        std::iter::once(&self.file_name).chain(&self.companion_file_names)
+    }
 }

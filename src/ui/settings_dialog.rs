@@ -278,7 +278,7 @@ fn capture_chip(ui: &mut egui::Ui, replacing: bool) {
 
 /// Returns whether "Change…" was clicked.
 fn storage_page(ui: &mut egui::Ui, draft: &mut SettingsDraft) -> bool {
-    page_header(ui, "Storage", "Where favourites are copied.");
+    page_header(ui, "Storage", "Where favourites are copied, and what.");
     ui.label(
         RichText::new("New sessions are created in")
             .size(13.0)
@@ -349,6 +349,13 @@ fn storage_page(ui: &mut egui::Ui, draft: &mut SettingsDraft) -> bool {
         RichText::new("Existing sessions keep their folders.")
             .size(12.0)
             .color(MUTED_TEXT),
+    );
+    ui.add_space(16.0);
+    ui.checkbox(
+        &mut draft.settings.copy_companions,
+        RichText::new("Include RAW and sidecar files when favouriting")
+            .size(13.0)
+            .color(TEXT),
     );
     change
 }

@@ -81,7 +81,7 @@ fn list_jpegs(folder: &Path) -> Vec<PathBuf> {
 }
 
 fn decode_ours_full(bytes: &[u8], target: [u32; 2]) -> [usize; 2] {
-    photo_sorter::imaging::decode::decode_full(bytes, target, 16384)
+    photo_sorter::imaging::decode::decode_full(bytes, target, 16384, None)
         .expect("decode")
         .size
 }

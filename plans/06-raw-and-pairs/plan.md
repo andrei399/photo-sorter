@@ -19,7 +19,13 @@ Evaluate, in order:
 
 Decision criteria: must cover Canon CR2/CR3, Nikon NEF, Sony ARW, Fuji RAF and DNG. Preview ≥ 1600 px on the long edge. ≤ 10 ms from extraction to JPEG bytes on SSD. Reads ≤ 10 % of the file. No C dependencies. **Write the decision and numbers into this file** before step 1.
 
-Samples: raw.pixls.us (CC0, per camera) into `qa-photos/raw/`.
+Samples: raw.pixls.us (CC0, per camera) into `qa-photos/raw/` (git-ignored).
+
+**Decided (2026-10-24): hand-rolled extractor, no new dependencies, no rawler.** It met every criterion on the first pass over 14 bodies (CR2, CR3 ×3, NEF ×2, ARW ×2, RAF, ORF ×2, RW2, Leica + iPhone DNG): extraction 0.1–1.0 ms, header overhead beyond the preview bytes ≈ 0 (a few KB), previews 1616–7008 px, all upright. Per-file numbers are in qa.md, reproducible with `cargo run --release --example raw_spike -- qa-photos/raw`.
+- CR3 uses **track 1's full-size JPEG** (5–6 K px) rather than the 1620 px PRVW box, so focus can be judged. PRVW and THMB remain as fallbacks.
+- "≤ 10 % of the file" holds for classic RAWs (2.7–9 %). Compressed CR3 (C-RAW, 11 MB) and iPhone DNG read 10–20 %, because the full-size preview *is* that share of a small file. The real criterion, "read only the preview", holds everywhere.
+- **No full-decode fallback**: every sample, including the iPhone DNG, has a preview. A RAW without one shows "Can't display". Add rawler behind a cargo feature only if a real camera turns up without a preview.
+- Fuzz: 378 k truncated/bit-flipped runs over the real samples, zero panics. IFD walking is capped (64 IFDs per file) so a self-referencing file can't fan out.
 
 HEIC: **deferred** (needs libheif, a C library under LGPL). The upgrade path is `libheif-rs` behind a cargo feature, if iPhone shooters ask.
 
@@ -28,28 +34,25 @@ HEIC: **deferred** (needs libheif, a C library under LGPL). The upgrade path is 
 ### 1. Preview extraction (`imaging/raw_preview.rs`)
 
 ```rust
-pub struct RawPreview { pub jpeg: Vec<u8>, pub orientation: Orientation }
+pub struct RawPreview { pub jpeg: Vec<u8>, pub orientation: Option<Orientation> }  // None: trust the JPEG's own EXIF (RAF)
 
 /// Reads only container headers + the preview byte range.
 pub fn extract_raw_preview(path: &Path) -> AppResult<RawPreview>
 ```
 Extend `decode_full` with an orientation override: `decode_full(bytes, target_px, max_texture_side, orientation: Option<Orientation>)`. RAW jobs pass the RAW's orientation. JPEG jobs pass `None`, so the embedded EXIF is used. RAW glimpses come from the RAW's own IFD1/THMB thumbnail through the same head-read path.
 
-The prefetch job picks its source by kind: `Viewable` → `fs::read`, `Raw` → `extract_raw_preview`. Everything after that is identical.
+The prefetch job picks its source by extension (`is_raw_file`): `fs::read` or `extract_raw_preview`. Everything after that is identical. RAW glimpses (`decode_raw_glimpse`) use the smallest embedded JPEG: decoded whole when it's a thumbnail, else its own EXIF thumbnail, else a 1/8-scale decode (Nikon/Olympus/iPhone, 5–30 ms).
 
 <!-- ponytail: no on-disk preview cache; range reads make extraction ~ms. Add a cache under ProjectDirs::cache_dir() only if NAS/network-drive users report slowness. -->
 
 ### 2. Folder scan groups by stem (`processor/photo_folder.rs`)
 
 ```rust
-const RAW_EXTENSIONS: &[&str] = &["cr2","cr3","nef","nrw","arw","raf","orf","rw2","pef","dng","srw"];
-
-pub enum SourceKind { Viewable, Raw }
+const RAW_EXTENSIONS: &[&str]  // in imaging/raw_preview.rs, next to is_raw_file() = &["cr2","cr3","nef","nrw","arw","raf","orf","rw2","pef","dng","srw"];
 
 pub struct Photo {
     pub path: PathBuf,             // file used for display
     pub file_name: String,
-    pub kind: SourceKind,
     pub companions: Vec<PathBuf>,  // other files of the same shot (RAW behind a JPEG, .xmp sidecars)
 }
 ```
@@ -62,18 +65,18 @@ pub struct Photo {
 ```rust
 pub struct Favourite {
     pub file_name: String,
-    #[serde(default)] pub drive_file_id: Option<String>,
-    #[serde(default)] pub companions: Vec<CopiedFile>,
+    #[serde(default)] pub companion_file_names: Vec<String>,   // Drive ids join when phase 05 lands
 }
-pub struct CopiedFile { pub file_name: String, #[serde(default)] pub drive_file_id: Option<String> }
 ```
 - `toggle_favourite(source)` **re-derives companions** by scanning the source folder for the stem. The UI sends only `source`, and its list isn't trusted.
 - Copy the display file and its companions with phase 03's `.partial` → rename routine. On a collision, **the whole group gets the same suffix** (`IMG_0042 (2).JPG` + `IMG_0042 (2).CR3`) so pairs stay matched for Lightroom.
-- All-or-nothing: if any copy fails, trash the files already copied in this toggle and return the error.
+- All-or-nothing: if any copy fails, delete the files already copied in this toggle and return the error. They are our own copies from milliseconds ago, never shown as a favourite, so the trash would only add clutter.
 - Un-favourite trashes the display copy plus every companion.
 - Setting `copy_companions: bool` (default **true**), shown in Settings as "Include RAW and sidecar files when favouriting". Some users only want JPEGs for clients.
 
 ### 4. Drive sync handles companions (if phase 05 Path B shipped)
+
+**Not built: phase 05 is deferred.** Do this step together with Path B.
 
 `build_drive_plan` emits one `UploadJob` per file (display + companions), and `Uploaded` results address files by `(session_id, source, file_name)`. Un-favourite pushes all ids to `pending_drive_trash`. Per-session option "Upload RAW files to Drive", default **off** (RAWs are 25–80 MB each and clients can't open them).
 
@@ -84,7 +87,7 @@ pub struct CopiedFile { pub file_name: String, #[serde(default)] pub drive_file_
 
 ### 6. Tests
 
-Commit 3 tiny CC0 RAW samples (CR3, NEF, ARW; < 5 MB total) to `tests/fixtures/raw/`, plus a generated JPEG.
+Real RAWs are 11–130 MB, so tests build **synthetic containers** instead (`tests/common/raw_fixtures.rs`: NEF/DNG-style TIFF with a lossless-JPEG raw strip that must be skipped, CR3 BMFF, RAF), padded so the preview is < 10 % of the file. The real samples are covered by the spike example and the manual QA.
 
 `tests/raw_preview.rs`:
 1. **extracts_preview_per_format**: every fixture → bytes start `FF D8`, decode long edge ≥ 1600 px, correct orientation.

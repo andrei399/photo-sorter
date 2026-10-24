@@ -157,6 +157,13 @@ pub struct Settings {
         deserialize_with = "deserialize_keybindings_with_defaults"
     )]
     pub keybindings: Keybindings,
+    /// Favouriting copies the shot's RAW and `.xmp` files too. Some photographers only hand JPEGs to clients.
+    #[serde(default = "copy_companions_by_default")]
+    pub copy_companions: bool,
+}
+
+fn copy_companions_by_default() -> bool {
+    true
 }
 
 impl Default for Settings {
@@ -171,6 +178,7 @@ impl Default for Settings {
         Self {
             favourites_root: pictures.join("Photo Sorter"),
             keybindings: default_keybindings(),
+            copy_companions: copy_companions_by_default(),
         }
     }
 }

@@ -15,7 +15,7 @@ fn is_red(color: Color32) -> bool {
 fn jpeg_is_decoded_at_smallest_dct_scale_covering_the_target() {
     let jpeg = jpeg_bytes(4000, 3000, |x, y| [(x % 256) as u8, (y % 256) as u8, 90]);
 
-    let image = decode_full(&jpeg, [1920, 1080], 16384).unwrap();
+    let image = decode_full(&jpeg, [1920, 1080], 16384, None).unwrap();
 
     // Fit is 1440×1080; 3/8 scale (1500×1125) is the smallest DCT step at or above it.
     assert_eq!(image.size, [1500, 1125]);
@@ -24,7 +24,7 @@ fn jpeg_is_decoded_at_smallest_dct_scale_covering_the_target() {
 #[test]
 fn jpeg_never_exceeds_max_texture_side() {
     let jpeg = jpeg_bytes(4000, 3000, |_, _| BLUE);
-    let image = decode_full(&jpeg, [8000, 8000], 2048).unwrap();
+    let image = decode_full(&jpeg, [8000, 8000], 2048, None).unwrap();
     assert!(image.size[0] <= 2048 && image.size[1] <= 2048, "{:?}", image.size);
 }
 
@@ -37,7 +37,7 @@ fn small_images_are_never_upscaled() {
             .unwrap();
         bytes
     };
-    assert_eq!(decode_full(&png, [3840, 2160], 16384).unwrap().size, [800, 600]);
+    assert_eq!(decode_full(&png, [3840, 2160], 16384, None).unwrap().size, [800, 600]);
 }
 
 #[test]
@@ -46,7 +46,7 @@ fn non_jpeg_formats_are_resized_to_fit() {
     image::RgbaImage::from_pixel(2000, 1000, image::Rgba([1, 2, 3, 255]))
         .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
         .unwrap();
-    assert_eq!(decode_full(&png, [1000, 1000], 16384).unwrap().size, [1000, 500]);
+    assert_eq!(decode_full(&png, [1000, 1000], 16384, None).unwrap().size, [1000, 500]);
 }
 
 /// Stored image: 64×32, red top-left quadrant. Each EXIF orientation must move it to the right corner.
@@ -65,7 +65,7 @@ fn all_eight_exif_orientations_display_upright() {
         (8, [32, 64], (false, true)),
     ];
     for (orientation, expected_size, (red_right, red_bottom)) in expectations {
-        let image = decode_full(&with_exif(&stored, orientation, None), [1000, 1000], 16384).unwrap();
+        let image = decode_full(&with_exif(&stored, orientation, None), [1000, 1000], 16384, None).unwrap();
         assert_eq!(image.size, expected_size, "orientation {orientation}");
         let [width, height] = image.size;
         let sample_x = if red_right { width * 7 / 8 } else { width / 8 };
@@ -113,8 +113,8 @@ fn glimpse_is_none_without_thumbnail() {
 #[test]
 fn corrupt_input_is_an_error_not_a_panic() {
     let jpeg = jpeg_bytes(400, 300, |_, _| BLUE);
-    assert!(decode_full(&jpeg[..jpeg.len() / 3], [100, 100], 16384).is_err());
-    assert!(decode_full(&[], [100, 100], 16384).is_err());
-    assert!(decode_full(b"definitely not an image", [100, 100], 16384).is_err());
-    assert!(decode_full(&[0xFF, 0xD8, 0xFF, 0xE0, 0, 0], [100, 100], 16384).is_err());
+    assert!(decode_full(&jpeg[..jpeg.len() / 3], [100, 100], 16384, None).is_err());
+    assert!(decode_full(&[], [100, 100], 16384, None).is_err());
+    assert!(decode_full(b"definitely not an image", [100, 100], 16384, None).is_err());
+    assert!(decode_full(&[0xFF, 0xD8, 0xFF, 0xE0, 0, 0], [100, 100], 16384, None).is_err());
 }

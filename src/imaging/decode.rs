@@ -11,10 +11,14 @@ use std::io::Cursor;
 const JPEG_MAGIC: [u8; 3] = [0xFF, 0xD8, 0xFF];
 
 /// Output is at most ~1.15× `target_px` per side for JPEG (next DCT step up), exact fit for other formats,
-/// and never larger than the source.
-pub fn decode_full(bytes: &[u8], target_px: [u32; 2], max_texture_side: usize) -> AppResult<ColorImage> {
-    let exif = read_exif(bytes);
-    let orientation = exif_orientation(exif.as_ref());
+/// and never larger than the source. `orientation_override` replaces the embedded EXIF (RAW previews lack it).
+pub fn decode_full(
+    bytes: &[u8],
+    target_px: [u32; 2],
+    max_texture_side: usize,
+    orientation_override: Option<Orientation>,
+) -> AppResult<ColorImage> {
+    let orientation = orientation_override.unwrap_or_else(|| exif_orientation(read_exif(bytes).as_ref()));
     let (pixels, size) = if bytes.starts_with(&JPEG_MAGIC) {
         decode_jpeg_scaled(bytes, target_px, orientation, max_texture_side)?
     } else {

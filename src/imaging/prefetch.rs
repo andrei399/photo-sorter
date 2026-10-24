@@ -1,7 +1,9 @@
 //! Decodes photos around the current one on a thread pool and keeps them as GPU textures,
 //! so pressing → swaps a texture handle instead of decoding.
 
+use crate::error::AppResult;
 use crate::imaging::decode::{decode_full, decode_glimpse};
+use crate::imaging::raw_preview::{decode_raw_glimpse, extract_raw_preview, is_raw_file};
 use crossbeam_channel::{Receiver, Sender, unbounded};
 use std::collections::HashMap;
 use std::io::Read;
@@ -268,15 +270,13 @@ fn run_decode_job(ctx: &egui::Context, job: DecodeJob, focus: &AtomicUsize) -> D
     let outcome = if !still_wanted {
         DecodeOutcome::Skipped
     } else {
+        let is_raw = is_raw_file(&job.path);
         let decoded = match job.tier {
+            Tier::Glimpse if is_raw => decode_raw_glimpse(&job.path).ok_or_else(|| "no embedded thumbnail".to_owned()),
             Tier::Glimpse => read_file_head(&job.path)
                 .map_err(|error| error.to_string())
                 .and_then(|head| decode_glimpse(&head).ok_or_else(|| "no embedded thumbnail".to_owned())),
-            Tier::Full => std::fs::read(&job.path)
-                .map_err(|error| error.to_string())
-                .and_then(|bytes| {
-                    decode_full(&bytes, job.target_px, job.max_texture_side).map_err(|error| error.to_string())
-                }),
+            Tier::Full => decode_full_tier(&job, is_raw).map_err(|error| error.to_string()),
         };
         match decoded {
             Ok(image) => {
@@ -296,6 +296,17 @@ fn run_decode_job(ctx: &egui::Context, job: DecodeJob, focus: &AtomicUsize) -> D
         target_px: job.target_px,
         outcome,
     }
+}
+
+/// RAWs go through their embedded JPEG; from there on both paths are identical.
+fn decode_full_tier(job: &DecodeJob, is_raw: bool) -> AppResult<egui::ColorImage> {
+    let (bytes, orientation) = if is_raw {
+        let preview = extract_raw_preview(&job.path)?;
+        (preview.jpeg, preview.orientation)
+    } else {
+        (std::fs::read(&job.path)?, None)
+    };
+    decode_full(&bytes, job.target_px, job.max_texture_side, orientation)
 }
 
 fn read_file_head(path: &Path) -> std::io::Result<Vec<u8>> {
