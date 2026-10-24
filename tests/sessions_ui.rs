@@ -4,6 +4,7 @@ use common::{app_harness, jpeg_folder, run_until, run_until_label};
 use egui::{Key, Modifiers, Role};
 use egui_kittest::kittest::Queryable;
 use photo_sorter::core::Command;
+use photo_sorter::models::settings::KeyCombo;
 
 fn active_session_name(harness: &common::AppHarness) -> Option<String> {
     harness
@@ -159,7 +160,7 @@ fn session_menu_lists_cards_and_switches_on_click() {
     run_until_label(&mut harness, "Beta · 0 ★");
 
     harness.get_by_label_contains("Beta · 0 ★").click();
-    run_until_label(&mut harness, "+ New session (Ctrl+N)");
+    run_until_label(&mut harness, &format!("+ New session ({})", KeyCombo::command(Key::N)));
     harness.get_by_label("Alpha").click();
 
     run_until(&mut harness, "alpha active", |h| {
