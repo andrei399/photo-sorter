@@ -47,3 +47,6 @@ pub const SELECTED_ROW_FILL: Color32 = Color32::from_rgb(0x2b, 0x2b, 0x2b);
 pub const WARNING_FILL: Color32 = Color32::from_rgb(0x2a, 0x22, 0x10);
 pub const WARNING_BORDER: Color32 = Color32::from_rgb(0x6b, 0x54, 0x10);
 pub const WARNING_TEXT: Color32 = Color32::from_rgb(0xf3, 0xe2, 0xb0);
+pub const CHIP_FILL: Color32 = Color32::from_rgb(0x2a, 0x2a, 0x2a);
+pub const CONFLICT_FILL: Color32 = Color32::from_rgb(0x2a, 0x14, 0x14);
+pub const CONFLICT_TEXT: Color32 = Color32::from_rgb(0xff, 0xd0, 0xcc);

@@ -1,7 +1,7 @@
 //! Layout C: photo on black, a bottom panel with controls and a ±5 filmstrip.
 
 use crate::app::PhotoSorterApp;
-use crate::models::settings::Action;
+use crate::models::settings::{Action, KeyCombo};
 use crate::processor::photo_folder::PhotoFolder;
 use crate::ui::palette::*;
 use crate::ui::sessions;
@@ -108,6 +108,11 @@ fn controls_row(ui: &mut egui::Ui, app: &mut PhotoSorterApp, photo_folder: &Phot
             {
                 app.toggle_current_favourite();
             }
+            ui.add_space(8.0);
+            let settings_hint = format!("Settings ({})", KeyCombo::command(egui::Key::Comma));
+            if settings_icon_button(ui).on_hover_text(settings_hint).clicked() {
+                app.open_settings();
+            }
         },
     );
 }
@@ -196,25 +201,50 @@ fn favourite_button(ui: &mut egui::Ui, app: &PhotoSorterApp, source: &Path) -> e
     response.on_hover_cursor(egui::CursorIcon::PointingHand)
 }
 
-fn folder_icon_button(ui: &mut egui::Ui) -> egui::Response {
+/// A 30 px borderless button that paints its own icon (Inter lacks folder and gear glyphs).
+fn icon_button(
+    ui: &mut egui::Ui,
+    accessible_label: &str,
+    paint_icon: impl FnOnce(&egui::Painter, Rect),
+) -> egui::Response {
     let (rect, response) = ui.allocate_exact_size(vec2(30.0, 30.0), Sense::click());
     if response.hovered() {
         ui.painter()
             .rect_filled(rect, CornerRadius::same(6), Color32::from_gray(0x24));
     }
-    let icon = Rect::from_center_size(rect.center(), vec2(16.0, 12.0));
-    let outline = vec![
-        icon.left_top(),
-        icon.left_top() + vec2(6.0, 0.0),
-        icon.left_top() + vec2(8.0, 2.0),
-        icon.right_top() + vec2(0.0, 2.0),
-        icon.right_bottom(),
-        icon.left_bottom(),
-        icon.left_top(),
-    ];
-    ui.painter().add(egui::Shape::line(outline, Stroke::new(1.5, TEXT)));
-    response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, "Open session folder"));
+    paint_icon(ui.painter(), rect);
+    response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, accessible_label));
     response
+}
+
+fn folder_icon_button(ui: &mut egui::Ui) -> egui::Response {
+    icon_button(ui, "Open session folder", |painter, rect| {
+        let icon = Rect::from_center_size(rect.center(), vec2(16.0, 12.0));
+        let outline = vec![
+            icon.left_top(),
+            icon.left_top() + vec2(6.0, 0.0),
+            icon.left_top() + vec2(8.0, 2.0),
+            icon.right_top() + vec2(0.0, 2.0),
+            icon.right_bottom(),
+            icon.left_bottom(),
+            icon.left_top(),
+        ];
+        painter.add(egui::Shape::line(outline, Stroke::new(1.5, TEXT)));
+    })
+}
+
+fn settings_icon_button(ui: &mut egui::Ui) -> egui::Response {
+    icon_button(ui, "Settings", |painter, rect| {
+        let center = rect.center();
+        painter.circle_stroke(center, 4.0, Stroke::new(1.5, TEXT));
+        for tooth in 0..8 {
+            let direction = egui::Vec2::angled(tooth as f32 * std::f32::consts::FRAC_PI_4);
+            painter.line_segment(
+                [center + direction * 5.5, center + direction * 8.0],
+                Stroke::new(2.0, TEXT),
+            );
+        }
+    })
 }
 
 /// Returns the index of a clicked thumbnail.

@@ -23,6 +23,7 @@ pub enum Command {
     ForgetSession(SessionId),
     ToggleFavourite(PathBuf),
     UpdateSettings(Settings),
+    DetectGoogleDrive,
 }
 
 #[derive(Debug, Clone)]
@@ -54,6 +55,10 @@ pub enum Event {
         error: AppError,
     },
     SettingsChanged(Settings),
+    /// Kept apart from `Error` so the Settings dialog can stay open and show it inline.
+    SettingsUpdateFailed(AppError),
+    /// Suggested favourites root inside a local Google Drive for desktop folder, if one exists.
+    GoogleDriveDetected(Option<PathBuf>),
     Error(AppError),
 }
 
@@ -118,9 +123,13 @@ fn handle(store: &mut Store, command: Command, move_to_trash: MoveToTrash) -> Ve
         }
         Command::ForgetSession(id) => sessions::forget_session(store, id).map(|_| sessions_and_favourites(store)),
         Command::ToggleFavourite(source) => Ok(toggle_favourite(store, source, move_to_trash)),
-        Command::UpdateSettings(new_settings) => {
-            settings::update_settings(store, new_settings).map(|saved| vec![Event::SettingsChanged(saved)])
-        }
+        Command::UpdateSettings(new_settings) => Ok(vec![
+            settings::update_settings(store, new_settings)
+                .map_or_else(Event::SettingsUpdateFailed, Event::SettingsChanged),
+        ]),
+        Command::DetectGoogleDrive => Ok(vec![Event::GoogleDriveDetected(
+            settings::detect_google_drive_favourites_root(),
+        )]),
     };
     result.unwrap_or_else(|error| vec![Event::Error(error)])
 }

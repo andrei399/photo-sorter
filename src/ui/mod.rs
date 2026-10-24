@@ -6,6 +6,7 @@ mod palette;
 
 pub use palette::install_theme;
 mod sessions;
+mod settings_dialog;
 mod viewer;
 
 pub fn draw(ui: &mut egui::Ui, app: &mut PhotoSorterApp) {

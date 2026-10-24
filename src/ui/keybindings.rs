@@ -35,7 +35,6 @@ impl KeyMap {
     }
 
     /// Actions triggered this frame, including key auto-repeat (held arrows browse continuously).
-    /// Uses the physical key when the platform reports it, so bindings survive keyboard layout switches.
     pub fn triggered_actions(&self, ctx: &egui::Context) -> Vec<Action> {
         if ctx.egui_wants_keyboard_input() {
             return Vec::new();
@@ -44,26 +43,29 @@ impl KeyMap {
             input
                 .events
                 .iter()
-                .filter_map(|event| match event {
-                    // Ctrl on macOS isn't the command modifier, and no binding can express it.
-                    egui::Event::Key {
-                        key,
-                        physical_key,
-                        pressed: true,
-                        modifiers,
-                        ..
-                    } if !(modifiers.ctrl && !modifiers.command) => self
-                        .action_by_combo
-                        .get(&KeyCombo {
-                            command: modifiers.command,
-                            alt: modifiers.alt,
-                            shift: modifiers.shift,
-                            key: physical_key.unwrap_or(*key),
-                        })
-                        .copied(),
-                    _ => None,
-                })
+                .filter_map(combo_of_key_event)
+                .filter_map(|combo| self.action_by_combo.get(&combo).copied())
                 .collect()
         })
+    }
+}
+
+/// The binding a key press stands for, using the physical key when the platform reports it.
+/// Ctrl on macOS isn't the command modifier and no binding can express it, so it yields nothing.
+pub fn combo_of_key_event(event: &egui::Event) -> Option<KeyCombo> {
+    match event {
+        egui::Event::Key {
+            key,
+            physical_key,
+            pressed: true,
+            modifiers,
+            ..
+        } if !(modifiers.ctrl && !modifiers.command) => Some(KeyCombo {
+            command: modifiers.command,
+            alt: modifiers.alt,
+            shift: modifiers.shift,
+            key: physical_key.unwrap_or(*key),
+        }),
+        _ => None,
     }
 }

@@ -2,7 +2,7 @@ use crate::core::{Command, CoreHandle, Event, spawn_core};
 use crate::error::AppResult;
 use crate::imaging::prefetch::ImageCache;
 use crate::models::session::SessionId;
-use crate::models::settings::Action;
+use crate::models::settings::{Action, Settings};
 use crate::models::state::PersistedState;
 use crate::processor::photo_folder::{Photo, PhotoFolder};
 use crate::processor::sessions::{SessionDirInfo, SessionSummary};
@@ -37,6 +37,33 @@ pub enum Modal {
     NewSession(NewSessionDraft),
     QuickSwitcher(QuickSwitcherState),
     ForgetSession(SessionId),
+    Settings(SettingsDraft),
+}
+
+/// Edits apply to this copy; nothing changes until Save is confirmed by the core.
+pub struct SettingsDraft {
+    pub settings: Settings,
+    pub page: SettingsPage,
+    pub capture: Option<KeyCapture>,
+    /// From `DetectGoogleDrive`: the suggested favourites root inside Google Drive for desktop.
+    pub google_drive_root: Option<PathBuf>,
+    /// Sent to the core; the dialog closes when it confirms.
+    pub saving: bool,
+    pub error: Option<String>,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum SettingsPage {
+    Shortcuts,
+    Storage,
+}
+
+/// Waiting for the next key press to bind to `action`.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct KeyCapture {
+    pub action: Action,
+    /// Index of the combo being replaced; `None` adds a new one.
+    pub replacing: Option<usize>,
 }
 
 pub struct NewSessionDraft {
@@ -142,6 +169,19 @@ impl PhotoSorterApp {
         self.toggle_favourite_optimistically(source);
     }
 
+    pub fn open_settings(&mut self) {
+        let Some(state) = &self.state else { return };
+        self.modal = Some(Modal::Settings(SettingsDraft {
+            settings: state.settings.clone(),
+            page: SettingsPage::Shortcuts,
+            capture: None,
+            google_drive_root: None,
+            saving: false,
+            error: None,
+        }));
+        self.send(Command::DetectGoogleDrive);
+    }
+
     pub fn favourites_root(&self) -> PathBuf {
         self.state
             .as_ref()
@@ -197,6 +237,21 @@ impl PhotoSorterApp {
                 self.key_map = KeyMap::from_settings(&settings);
                 if let Some(state) = &mut self.state {
                     state.settings = settings;
+                }
+                if matches!(&self.modal, Some(Modal::Settings(draft)) if draft.saving) {
+                    self.modal = None;
+                }
+            }
+            Event::SettingsUpdateFailed(error) => match &mut self.modal {
+                Some(Modal::Settings(draft)) => {
+                    draft.saving = false;
+                    draft.error = Some(error.to_string());
+                }
+                _ => self.error_message = Some(error.to_string()),
+            },
+            Event::GoogleDriveDetected(root) => {
+                if let Some(Modal::Settings(draft)) = &mut self.modal {
+                    draft.google_drive_root = root;
                 }
             }
             Event::FolderOpened(photo_folder) => {
@@ -268,6 +323,10 @@ impl eframe::App for PhotoSorterApp {
             self.apply(event);
         }
         if self.modal.is_none() {
+            // Not rebindable, so a bad binding can always be undone.
+            if ctx.input_mut(|input| input.consume_key(egui::Modifiers::COMMAND, egui::Key::Comma)) {
+                self.open_settings();
+            }
             for action in self.key_map.triggered_actions(ctx) {
                 self.perform(action);
             }

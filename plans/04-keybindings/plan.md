@@ -6,6 +6,8 @@ Goal: every shortcut (favourite, next, previous, first, last, new session, open 
 
 Mock 2 variants of the Settings dialog: (a) a single modal with a "Shortcuts" table plus a "Storage" section, (b) a larger window with a left nav. Publish, report, **stop until picked**. With 7 actions and 1 path, (a) is probably enough.
 
+**Picked (2026-10-24): G2**, a window with a left nav (Shortcuts, Storage). Shortcuts are grouped (Browsing, Favourites, Files); clicking a key chip recaptures it (Delete removes it), "+" adds another; the first problem is shown in red under its row, on the offending chips, and as a badge on the nav item, and Save stays disabled until it's fixed. Phase 05 adds a "Google Drive" nav item.
+
 ## Steps
 
 ### 1. Types (`models/settings.rs`)
@@ -40,7 +42,7 @@ pub fn update_settings(store: &mut Store, new_settings: Settings) -> AppResult<S
 - `favourites_root`: must be absolute. `create_dir_all`, then a writability probe (create and delete a temp file). It affects **new** sessions only, and existing sessions keep their `dir`.
 - Save and return the normalized settings.
 
-Core: `Command::UpdateSettings(Settings)`, `Command::ResetKeybindings` → `Event::SettingsChanged(Settings)` or `Event::Error`. The initial `Snapshot` already carries settings.
+Core: `Command::UpdateSettings(Settings)` → `Event::SettingsChanged(Settings)` or `Event::SettingsUpdateFailed` (shown inline). Reset to defaults only edits the draft, so it needs no command. The initial `Snapshot` already carries settings.
 
 ### 3. Matching (`ui/keybindings.rs`)
 

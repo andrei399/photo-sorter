@@ -1,4 +1,5 @@
-//! Session switcher (dropdown of session cards), quick switcher, New Session dialog, forget confirmation.
+//! Session switcher (dropdown of session cards), quick switcher, New Session dialog, forget confirmation,
+//! and the dispatch of every modal (one at a time).
 
 use crate::app::{Modal, NewSessionDraft, PhotoSorterApp, QuickSwitcherState};
 use crate::core::Command;
@@ -155,6 +156,11 @@ pub fn draw_modal(ui: &mut egui::Ui, app: &mut PhotoSorterApp) {
         Some(Modal::ForgetSession(id)) if forget_confirmation(ui, app, id) && app.modal.is_none() => {
             app.modal = Some(Modal::ForgetSession(id));
         }
+        Some(Modal::Settings(mut draft)) => {
+            if super::settings_dialog::settings_dialog(ui, app, &mut draft) && app.modal.is_none() {
+                app.modal = Some(Modal::Settings(draft));
+            }
+        }
         Some(Modal::ForgetSession(_)) | None => {}
     }
 }
@@ -167,14 +173,14 @@ fn dialog_frame() -> Frame {
         .inner_margin(24)
 }
 
-fn primary_button(text: &str) -> Button<'_> {
+pub(super) fn primary_button(text: &str) -> Button<'_> {
     Button::new(RichText::new(text).font(semibold(13.0)).color(AMBER_INK))
         .fill(AMBER)
         .corner_radius(6)
         .min_size(vec2(0.0, 36.0))
 }
 
-fn secondary_button(text: &str) -> Button<'_> {
+pub(super) fn secondary_button(text: &str) -> Button<'_> {
     Button::new(RichText::new(text).color(TEXT))
         .fill(egui::Color32::TRANSPARENT)
         .stroke(Stroke::new(1.0, POPUP_BORDER))

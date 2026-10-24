@@ -15,7 +15,9 @@ fn expect_rejected(core: &common::TestCore, settings: Settings, message: &str) {
     let disk_before = fs::read(core.state_path()).unwrap();
     core.send(Command::UpdateSettings(settings));
     match core.expect_event() {
-        Event::Error(AppError::Invalid(error)) => assert!(error.contains(message), "{error:?} lacks {message:?}"),
+        Event::SettingsUpdateFailed(AppError::Invalid(error)) => {
+            assert!(error.contains(message), "{error:?} lacks {message:?}")
+        }
         other => panic!("expected rejection containing {message:?}, got {other:?}"),
     }
     assert_eq!(

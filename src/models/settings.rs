@@ -92,13 +92,13 @@ impl fmt::Display for KeyCombo {
             ..Modifiers::NONE
         };
         let modifiers = names.format(&modifiers, is_mac);
-        // egui's own arrow symbols (⏴⏵) are missing from Inter.
+        // egui's own arrow symbols (⏴⏵) are missing from Inter; its punctuation symbols (",") read better than names.
         let key = match self.key {
             Key::ArrowLeft => "←",
             Key::ArrowRight => "→",
             Key::ArrowUp => "↑",
             Key::ArrowDown => "↓",
-            key => key.name(),
+            key => key.symbol_or_name(),
         };
         if modifiers.is_empty() {
             f.write_str(key)

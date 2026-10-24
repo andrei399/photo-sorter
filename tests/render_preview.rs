@@ -1,5 +1,5 @@
 //! Renders UI scenes to PNGs for eyeballing layout:
-//! `PREVIEW_PHOTOS=<folder> PREVIEW_OUT=<dir> cargo test --test render_preview -- --ignored`
+//! `[PREVIEW_PHOTOS=<folder>] PREVIEW_OUT=<dir> cargo test --test render_preview -- --ignored`
 mod common;
 
 use common::{AppHarness, app_harness};
@@ -23,7 +23,8 @@ fn save(harness: &mut AppHarness, out: &Path, name: &str) {
 #[test]
 #[ignore]
 fn render_ui_scenes() {
-    let photos = PathBuf::from(std::env::var("PREVIEW_PHOTOS").expect("PREVIEW_PHOTOS=<folder>"));
+    let generated_photos = common::jpeg_folder(5);
+    let photos = std::env::var("PREVIEW_PHOTOS").map_or_else(|_| generated_photos.path().to_path_buf(), PathBuf::from);
     let out = PathBuf::from(std::env::var("PREVIEW_OUT").expect("PREVIEW_OUT=<dir>"));
     let state_dir = tempfile::tempdir().unwrap();
     let mut harness = app_harness(state_dir.path());
@@ -63,4 +64,23 @@ fn render_ui_scenes() {
     harness.get_by_role(egui::Role::TextInput).type_text("mar");
     settle(&mut harness, 10);
     save(&mut harness, &out, "4_quick_switcher.png");
+    harness.key_press(Key::Escape);
+    settle(&mut harness, 5);
+
+    harness.key_press_modifiers(Modifiers::COMMAND, Key::Comma);
+    settle(&mut harness, 5);
+    harness
+        .get_by_role_and_label(egui::Role::Button, "Add shortcut for Next photo")
+        .click();
+    settle(&mut harness, 3);
+    harness.key_press(Key::Enter);
+    settle(&mut harness, 3);
+    harness
+        .get_by_role_and_label(egui::Role::Button, "Add shortcut for Last photo")
+        .click();
+    settle(&mut harness, 5);
+    save(&mut harness, &out, "5_settings_shortcuts.png");
+    harness.get_by_role_and_label(egui::Role::Button, "Storage").click();
+    settle(&mut harness, 5);
+    save(&mut harness, &out, "6_settings_storage.png");
 }
