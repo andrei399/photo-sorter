@@ -1,0 +1,53 @@
+use crate::app::PhotoSorterApp;
+use crate::ui::keybindings::Action;
+
+pub mod keybindings;
+mod palette;
+
+pub use palette::install_theme;
+mod sessions;
+mod viewer;
+
+pub fn draw(ui: &mut egui::Ui, app: &mut PhotoSorterApp) {
+    // Taken for the frame so the viewer can read the folder while mutating the rest of the app.
+    match app.photo_folder.take() {
+        Some(photo_folder) => {
+            viewer::draw(ui, app, &photo_folder);
+            app.photo_folder = Some(photo_folder);
+        }
+        None => start_screen(ui, app),
+    }
+    sessions::draw_modal(ui, app);
+    error_toast(ui, app);
+}
+
+fn start_screen(ui: &mut egui::Ui, app: &mut PhotoSorterApp) {
+    egui::CentralPanel::default().show(ui, |ui| {
+        ui.centered_and_justified(|ui| {
+            ui.vertical_centered(|ui| {
+                ui.label("Open a folder to start");
+                if ui.button("Open folder").clicked() {
+                    app.perform(Action::OpenFolder);
+                }
+            });
+        });
+    });
+}
+
+fn error_toast(ui: &mut egui::Ui, app: &mut PhotoSorterApp) {
+    let Some(message) = app.error_message.clone() else {
+        return;
+    };
+    egui::Area::new(egui::Id::unique("error_toast"))
+        .anchor(egui::Align2::RIGHT_TOP, egui::vec2(-16.0, 16.0))
+        .show(ui.ctx(), |ui| {
+            egui::Frame::popup(ui.style()).show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    ui.colored_label(egui::Color32::from_rgb(0xff, 0x8a, 0x80), message);
+                    if ui.small_button("×").clicked() {
+                        app.error_message = None;
+                    }
+                });
+            });
+        });
+}
