@@ -113,8 +113,9 @@ jobs:
               mv "$out/Photo Sorter.app.$ext" "dist/Photo-Sorter_${GITHUB_REF_NAME#v}_${arch}.app.$ext"
             done
           fi
+          # PKGBUIL[D] is a glob, so nullglob drops it on the OSes that don't produce one.
           shopt -s nullglob
-          for file in "$out"/*.{deb,AppImage,dmg,msi,exe,sig} "$out"/photo-sorter_*.tar.gz "$out"/PKGBUILD; do
+          for file in "$out"/*.{deb,AppImage,dmg,msi,exe,sig} "$out"/photo-sorter_*.tar.gz "$out"/PKGBUIL[D]; do
             # GitHub would turn the space in "Photo Sorter" into a dot, breaking the update URLs.
             name=$(basename "$file"); mv "$file" "dist/${name// /-}"
           done

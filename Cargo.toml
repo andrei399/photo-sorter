@@ -40,7 +40,8 @@ product-name = "Photo Sorter"
 identifier = "io.github.andrei399.photosorter"
 publisher = "Tudor Andrei-Cristian"
 homepage = "https://github.com/andrei399/photo-sorter"
-icons = ["assets/icon.png"]
+# macOS needs a 1× icon; the 1024 px one only exists as 512@2x.
+icons = ["assets/icon.png", "assets/icon@2x.png"]
 category = "Photography"
 
 [package.metadata.packager.macos]
