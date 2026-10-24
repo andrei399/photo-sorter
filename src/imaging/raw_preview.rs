@@ -405,7 +405,9 @@ impl Tiff {
         let count = self.u16(&raw.read_at(position, 2)?).min(MAX_IFD_ENTRIES);
         let table = raw.read_at(position + 2, u64::from(count) * 12 + 4)?;
         let entries = table
-            .chunks_exact(12)
+            .as_chunks::<12>()
+            .0
+            .iter()
             .map(|entry| {
                 let kind = self.u16(&entry[2..4]);
                 let is_short = kind == 3;
@@ -432,7 +434,7 @@ impl Tiff {
         }
         let count = entry.count.min(u32::from(MAX_IFD_ENTRIES));
         raw.read_at(self.base + u64::from(entry.value), u64::from(count) * 4)
-            .map(|bytes| bytes.chunks_exact(4).map(|value| self.u32(value)).collect())
+            .map(|bytes| bytes.as_chunks::<4>().0.iter().map(|value| self.u32(value)).collect())
             .unwrap_or_default()
     }
 
