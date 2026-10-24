@@ -5,7 +5,8 @@
 #   APPLE_CERTIFICATE, APPLE_CERTIFICATE_PASSWORD, APPLE_SIGNING_IDENTITY, APPLE_ID, APPLE_PASSWORD, APPLE_TEAM_ID,
 #   AZURE_CLIENT_ID, AZURE_CLIENT_SECRET, AZURE_TENANT_ID.
 # Variables: UPDATER_PUBKEY, AZURE_SIGNING_ENDPOINT, AZURE_SIGNING_ACCOUNT, AZURE_CERTIFICATE_PROFILE.
-# Missing Apple/Azure secrets produce unsigned installers (fine for a dry run, not for publishing).
+# Missing Apple/Azure secrets produce unsigned installers; without the updater key there's no latest.json and
+# the builds don't auto-update.
 name: Release
 
 on:
@@ -50,8 +51,6 @@ jobs:
     env:
       # Compiled in: builds without it (every dev build) never update themselves.
       PHOTO_SORTER_UPDATER_PUBKEY: ${{ vars.UPDATER_PUBKEY }}
-      CARGO_PACKAGER_SIGN_PRIVATE_KEY: ${{ secrets.CARGO_PACKAGER_SIGN_PRIVATE_KEY }}
-      CARGO_PACKAGER_SIGN_PRIVATE_KEY_PASSWORD: ${{ secrets.CARGO_PACKAGER_SIGN_PRIVATE_KEY_PASSWORD }}
       APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
       APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
       APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
@@ -89,7 +88,18 @@ jobs:
             "${{ vars.AZURE_SIGNING_ENDPOINT }}" "${{ vars.AZURE_SIGNING_ACCOUNT }}" "${{ vars.AZURE_CERTIFICATE_PROFILE }}" >> Cargo.toml
 
       - run: cargo build --release --target ${{ matrix.target }}
-      - run: cargo packager --release --target ${{ matrix.target }} --formats ${{ matrix.formats }}
+      - name: Package
+        shell: bash
+        env:
+          UPDATER_PRIVATE_KEY: ${{ secrets.CARGO_PACKAGER_SIGN_PRIVATE_KEY }}
+          UPDATER_PRIVATE_KEY_PASSWORD: ${{ secrets.CARGO_PACKAGER_SIGN_PRIVATE_KEY_PASSWORD }}
+        run: |
+          # An empty secret reads as an invalid key: sign updates only once the updater key is configured.
+          if [ -n "$UPDATER_PRIVATE_KEY" ]; then
+            export CARGO_PACKAGER_SIGN_PRIVATE_KEY="$UPDATER_PRIVATE_KEY"
+            export CARGO_PACKAGER_SIGN_PRIVATE_KEY_PASSWORD="$UPDATER_PRIVATE_KEY_PASSWORD"
+          fi
+          cargo packager --release --target ${{ matrix.target }} --formats ${{ matrix.formats }}
 
       - name: Collect installers
         shell: bash
@@ -112,6 +122,7 @@ jobs:
           ls -la dist
 
       - name: Describe the update for latest.json
+        if: vars.UPDATER_PUBKEY != ''
         shell: bash
         run: |
           case "${{ matrix.updater_format }}" in
@@ -124,6 +135,7 @@ jobs:
             --arg signature "$(cat "$bundle.sig")" --arg format "${{ matrix.updater_format }}" \
             '{($platform): {url: $url, signature: $signature, format: $format}}' > "update-${{ matrix.updater_platform }}.json"
       - uses: actions/upload-artifact@v4
+        if: vars.UPDATER_PUBKEY != ''
         with:
           name: update-${{ matrix.updater_platform }}
           path: update-${{ matrix.updater_platform }}.json
@@ -140,6 +152,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
+        if: vars.UPDATER_PUBKEY != ''
         with:
           pattern: update-*
           merge-multiple: true
@@ -147,11 +160,15 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          jq -s --arg version "${GITHUB_REF_NAME#v}" --arg pub_date "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+          shopt -s nullglob
+          updates=(update-*.json)
+          if [ ${#updates[@]} -gt 0 ]; then
+            jq -s --arg version "${GITHUB_REF_NAME#v}" --arg pub_date "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
             --arg notes "https://github.com/${{ github.repository }}/releases/tag/$GITHUB_REF_NAME" \
-            '{version: $version, notes: $notes, pub_date: $pub_date, platforms: add}' update-*.json > latest.json
-          cat latest.json
+              '{version: $version, notes: $notes, pub_date: $pub_date, platforms: add}' "${updates[@]}" > latest.json
+            cat latest.json
+          fi
           mkdir assets
           gh release download "$GITHUB_REF_NAME" --repo "${{ github.repository }}" --dir assets
           (cd assets && sha256sum * > ../SHA256SUMS.txt)
-          gh release upload "$GITHUB_REF_NAME" latest.json SHA256SUMS.txt --repo "${{ github.repository }}" --clobber
+          gh release upload "$GITHUB_REF_NAME" SHA256SUMS.txt ${updates:+latest.json} --repo "${{ github.repository }}" --clobber

@@ -28,7 +28,10 @@ pub enum UpdateInstall {
 
 /// `check_marker`'s modification time records the last successful check.
 pub fn spawn_background_update(check_marker: PathBuf, on_available: impl FnOnce(AvailableUpdate) + Send + 'static) {
-    let Some(public_key) = UPDATER_PUBLIC_KEY else { return };
+    // CI passes an empty string while the repo variable isn't set yet.
+    let Some(public_key) = UPDATER_PUBLIC_KEY.filter(|key| !key.is_empty()) else {
+        return;
+    };
     let checked_recently = std::fs::metadata(&check_marker)
         .and_then(|metadata| metadata.modified())
         .is_ok_and(|checked_at| SystemTime::now().duration_since(checked_at).unwrap_or_default() < CHECK_INTERVAL);

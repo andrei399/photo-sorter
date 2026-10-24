@@ -2,7 +2,7 @@
 name = "photo_sorter"
 version = "0.1.0"
 edition = "2024"
-authors = ["Nodus Veritatis"]
+authors = ["Tudor Andrei-Cristian"]
 description = "Blazingly fast photo culling: browse, favourite into per-event sessions, sync to Google Drive."
 publish = false
 
@@ -37,8 +37,8 @@ cargo-packager-updater = "0.2"
 # Signing settings are injected by CI only, so local packaging works without certificates.
 [package.metadata.packager]
 product-name = "Photo Sorter"
-identifier = "com.nodusveritatis.photosorter"
-publisher = "Nodus Veritatis"
+identifier = "io.github.andrei399.photosorter"
+publisher = "Tudor Andrei-Cristian"
 homepage = "https://github.com/andrei399/photo-sorter"
 icons = ["assets/icon.png"]
 category = "Photography"
