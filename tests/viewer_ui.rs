@@ -59,3 +59,23 @@ fn enter_favourites_current_photo_into_active_session() {
             .contains(&photos.path().join("IMG_2.jpg"))
     );
 }
+
+#[test]
+fn update_notice_waits_for_the_user_and_can_be_dismissed() {
+    use egui_kittest::kittest::Queryable;
+    use photo_sorter::integrations::updater::{AvailableUpdate, UpdateInstall};
+    let state_dir = tempfile::tempdir().unwrap();
+    let mut harness = app_harness(state_dir.path());
+
+    harness.state_mut().available_update = Some(AvailableUpdate {
+        version: "9.9.9".into(),
+        install: UpdateInstall::FromReleasePage,
+    });
+    run_until_label(&mut harness, "Photo Sorter v9.9.9 is out");
+
+    harness.get_by_label("×").click();
+    run_until(&mut harness, "notice dismissed", |h| {
+        h.query_by_label_contains("v9.9.9").is_none()
+    });
+    assert!(harness.state().available_update.is_none());
+}

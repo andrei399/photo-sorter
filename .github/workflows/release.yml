@@ -1,0 +1,157 @@
+# Pushing a `v*` tag builds signed installers for every OS into a DRAFT release. Updaters only see a release once
+# a human has run plans/07-release/qa.md on the draft and published it.
+#
+# Secrets: CARGO_PACKAGER_SIGN_PRIVATE_KEY, CARGO_PACKAGER_SIGN_PRIVATE_KEY_PASSWORD (updater signing),
+#   APPLE_CERTIFICATE, APPLE_CERTIFICATE_PASSWORD, APPLE_SIGNING_IDENTITY, APPLE_ID, APPLE_PASSWORD, APPLE_TEAM_ID,
+#   AZURE_CLIENT_ID, AZURE_CLIENT_SECRET, AZURE_TENANT_ID.
+# Variables: UPDATER_PUBKEY, AZURE_SIGNING_ENDPOINT, AZURE_SIGNING_ACCOUNT, AZURE_CERTIFICATE_PROFILE.
+# Missing Apple/Azure secrets produce unsigned installers (fine for a dry run, not for publishing).
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  ci:
+    uses: ./.github/workflows/ci.yml
+
+  draft:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Tag matches the Cargo.toml version
+        run: |
+          version=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[0].version')
+          if [ "v$version" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME doesn't match Cargo.toml version $version"
+            exit 1
+          fi
+      - name: Create the draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" --draft --verify-tag --generate-notes --title "Photo Sorter $GITHUB_REF_NAME"
+
+  package:
+    needs: [ci, draft]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: macos-latest, target: aarch64-apple-darwin, formats: 'app,dmg', updater_platform: macos-aarch64, updater_format: app }
+          - { os: macos-15-intel, target: x86_64-apple-darwin, formats: 'app,dmg', updater_platform: macos-x86_64, updater_format: app }
+          # The oldest supported glibc, so the binaries run on the most distros.
+          - { os: ubuntu-22.04, target: x86_64-unknown-linux-gnu, formats: 'deb,appimage,pacman', updater_platform: linux-x86_64, updater_format: appimage }
+          - { os: windows-latest, target: x86_64-pc-windows-msvc, formats: 'nsis,wix', updater_platform: windows-x86_64, updater_format: nsis }
+    runs-on: ${{ matrix.os }}
+    env:
+      # Compiled in: builds without it (every dev build) never update themselves.
+      PHOTO_SORTER_UPDATER_PUBKEY: ${{ vars.UPDATER_PUBKEY }}
+      CARGO_PACKAGER_SIGN_PRIVATE_KEY: ${{ secrets.CARGO_PACKAGER_SIGN_PRIVATE_KEY }}
+      CARGO_PACKAGER_SIGN_PRIVATE_KEY_PASSWORD: ${{ secrets.CARGO_PACKAGER_SIGN_PRIVATE_KEY_PASSWORD }}
+      APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+      APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+      APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+      APPLE_ID: ${{ secrets.APPLE_ID }}
+      APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+      AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+      AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+      # linuxdeploy is itself an AppImage, and runners have no FUSE.
+      APPIMAGE_EXTRACT_AND_RUN: 1
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+      - uses: ./.github/actions/system-deps
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-packager@0.11.8
+
+      # Signing settings live only in CI, so `cargo packager` also works on machines without certificates.
+      - name: Configure macOS signing
+        if: runner.os == 'macOS' && env.APPLE_SIGNING_IDENTITY != ''
+        run: perl -pi -e 's/^(\[package\.metadata\.packager\.macos\])$/$1\nsigning-identity = "$ENV{APPLE_SIGNING_IDENTITY}"/' Cargo.toml
+      - name: Configure Windows signing
+        if: runner.os == 'Windows' && env.AZURE_CLIENT_ID != ''
+        shell: bash
+        run: |
+          cargo install trusted-signing-cli --locked
+          printf '\n[package.metadata.packager.windows]\nsign-command = "trusted-signing-cli -e %s -a %s -c %s %%1"\n' \
+            "${{ vars.AZURE_SIGNING_ENDPOINT }}" "${{ vars.AZURE_SIGNING_ACCOUNT }}" "${{ vars.AZURE_CERTIFICATE_PROFILE }}" >> Cargo.toml
+
+      - run: cargo build --release --target ${{ matrix.target }}
+      - run: cargo packager --release --target ${{ matrix.target }} --formats ${{ matrix.formats }}
+
+      - name: Collect installers
+        shell: bash
+        run: |
+          out="target/${{ matrix.target }}/release"
+          mkdir dist
+          # Both macOS builds name the update bundle "Photo Sorter.app.tar.gz": give it the version and arch.
+          if [ -f "$out/Photo Sorter.app.tar.gz" ]; then
+            arch="${{ matrix.target }}"; arch="${arch%%-*}"
+            for ext in tar.gz tar.gz.sig; do
+              mv "$out/Photo Sorter.app.$ext" "dist/Photo-Sorter_${GITHUB_REF_NAME#v}_${arch}.app.$ext"
+            done
+          fi
+          shopt -s nullglob
+          for file in "$out"/*.{deb,AppImage,dmg,msi,exe,sig} "$out"/photo-sorter_*.tar.gz "$out"/PKGBUILD; do
+            # GitHub would turn the space in "Photo Sorter" into a dot, breaking the update URLs.
+            name=$(basename "$file"); mv "$file" "dist/${name// /-}"
+          done
+          rm -f dist/photo-sorter.exe dist/photo-sorter.exe.sig
+          ls -la dist
+
+      - name: Describe the update for latest.json
+        shell: bash
+        run: |
+          case "${{ matrix.updater_format }}" in
+            app) bundle=$(ls dist/*.app.tar.gz) ;;
+            appimage) bundle=$(ls dist/*.AppImage) ;;
+            nsis) bundle=$(ls dist/*-setup.exe) ;;
+          esac
+          url="https://github.com/${{ github.repository }}/releases/download/$GITHUB_REF_NAME/$(basename "$bundle")"
+          jq -n --arg platform "${{ matrix.updater_platform }}" --arg url "$url" \
+            --arg signature "$(cat "$bundle.sig")" --arg format "${{ matrix.updater_format }}" \
+            '{($platform): {url: $url, signature: $signature, format: $format}}' > "update-${{ matrix.updater_platform }}.json"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: update-${{ matrix.updater_platform }}
+          path: update-${{ matrix.updater_platform }}.json
+
+      - name: Upload to the draft release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$GITHUB_REF_NAME" dist/* --clobber
+
+  # Only after every platform succeeded, so updaters never see a manifest pointing at missing files.
+  manifest:
+    needs: package
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: update-*
+          merge-multiple: true
+      - name: Assemble latest.json and checksums
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          jq -s --arg version "${GITHUB_REF_NAME#v}" --arg pub_date "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --arg notes "https://github.com/${{ github.repository }}/releases/tag/$GITHUB_REF_NAME" \
+            '{version: $version, notes: $notes, pub_date: $pub_date, platforms: add}' update-*.json > latest.json
+          cat latest.json
+          mkdir assets
+          gh release download "$GITHUB_REF_NAME" --repo "${{ github.repository }}" --dir assets
+          (cd assets && sha256sum * > ../SHA256SUMS.txt)
+          gh release upload "$GITHUB_REF_NAME" latest.json SHA256SUMS.txt --repo "${{ github.repository }}" --clobber

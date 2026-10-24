@@ -12,6 +12,8 @@ use egui::{Align, Button, Color32, Frame, Key, Layout, Margin, RichText, ScrollA
 const WINDOW_SIZE: egui::Vec2 = vec2(880.0, 640.0);
 const NAV_WIDTH: f32 = 200.0;
 const FOOTER_HEIGHT: f32 = 64.0;
+/// No servers, no telemetry: the policy says what the app does with photos and where they go.
+const PRIVACY_POLICY: &str = "https://github.com/andrei399/photo-sorter/blob/main/PRIVACY.md";
 const GROUPS: [&str; 3] = ["BROWSING", "FAVOURITES", "FILES"];
 
 fn group_of(action: Action) -> &'static str {
@@ -160,6 +162,17 @@ fn nav(ui: &mut egui::Ui, draft: &mut SettingsDraft, shortcuts_have_problem: boo
                         draft.capture = None;
                     }
                 }
+                ui.with_layout(Layout::bottom_up(Align::Min), |ui| {
+                    ui.horizontal(|ui| {
+                        ui.add_space(8.0);
+                        ui.label(
+                            RichText::new(format!("Photo Sorter v{} ·", env!("CARGO_PKG_VERSION")))
+                                .size(12.0)
+                                .color(MUTED_TEXT),
+                        );
+                        ui.hyperlink_to(RichText::new("Privacy").size(12.0).color(MUTED_TEXT), PRIVACY_POLICY);
+                    });
+                });
             })
         });
 }

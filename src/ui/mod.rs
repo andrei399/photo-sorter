@@ -1,4 +1,5 @@
 use crate::app::PhotoSorterApp;
+use crate::integrations::updater::UpdateInstall;
 use crate::models::settings::Action;
 
 pub mod keybindings;
@@ -20,6 +21,7 @@ pub fn draw(ui: &mut egui::Ui, app: &mut PhotoSorterApp) {
     }
     sessions::draw_modal(ui, app);
     error_toast(ui, app);
+    update_notice(ui, app);
 }
 
 fn start_screen(ui: &mut egui::Ui, app: &mut PhotoSorterApp) {
@@ -55,4 +57,33 @@ fn error_toast(ui: &mut egui::Ui, app: &mut PhotoSorterApp) {
                 });
             });
         });
+}
+
+/// Non-blocking: the update waits, already downloaded, until the user picks a moment to restart.
+fn update_notice(ui: &mut egui::Ui, app: &mut PhotoSorterApp) {
+    let Some(update) = &app.available_update else {
+        return;
+    };
+    let (message, action) = match update.install {
+        UpdateInstall::Ready(_) => (format!("Update to v{} available", update.version), "Restart to update"),
+        UpdateInstall::FromReleasePage => (format!("Photo Sorter v{} is out", update.version), "Download"),
+    };
+    let mut act = false;
+    let mut dismiss = false;
+    egui::Area::new(egui::Id::unique("update_notice"))
+        .anchor(egui::Align2::CENTER_TOP, egui::vec2(0.0, 16.0))
+        .show(ui.ctx(), |ui| {
+            egui::Frame::popup(ui.style()).show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    ui.label(message);
+                    act = ui.add(sessions::primary_button(action)).clicked();
+                    dismiss = ui.small_button("×").on_hover_text("Remind me next launch").clicked();
+                });
+            });
+        });
+    if act {
+        app.restart_to_update(ui.ctx());
+    } else if dismiss {
+        app.available_update = None;
+    }
 }

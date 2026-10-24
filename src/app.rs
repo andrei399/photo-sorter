@@ -1,12 +1,14 @@
 use crate::core::{Command, CoreHandle, Event, spawn_core};
 use crate::error::AppResult;
 use crate::imaging::prefetch::ImageCache;
+use crate::integrations::updater::{self, AvailableUpdate, UpdateInstall};
 use crate::models::session::SessionId;
 use crate::models::settings::{Action, Settings};
 use crate::models::state::PersistedState;
 use crate::processor::photo_folder::{Photo, PhotoFolder};
 use crate::processor::sessions::{SessionDirInfo, SessionSummary};
 use crate::ui::keybindings::KeyMap;
+use crossbeam_channel::Receiver;
 use std::collections::HashSet;
 use std::path::PathBuf;
 use std::time::Instant;
@@ -102,12 +104,21 @@ pub struct PhotoSorterApp {
     /// A file dropped on the window: select it once its folder has been opened.
     pending_focus: Option<PathBuf>,
     pub error_message: Option<String>,
+    /// A newer release, found and downloaded in the background; offered until the user restarts.
+    pub available_update: Option<AvailableUpdate>,
+    available_update_rx: Receiver<AvailableUpdate>,
 }
 
 impl PhotoSorterApp {
     pub fn new(egui_ctx: &egui::Context, state_path: PathBuf) -> AppResult<Self> {
         crate::ui::install_theme(egui_ctx);
         let repaint_ctx = egui_ctx.clone();
+        let (available_update_tx, available_update_rx) = crossbeam_channel::bounded(1);
+        let update_ctx = egui_ctx.clone();
+        updater::spawn_background_update(state_path.with_file_name("update-checked"), move |update| {
+            let _ = available_update_tx.send(update);
+            update_ctx.request_repaint();
+        });
         let core = spawn_core(state_path, move || repaint_ctx.request_repaint())?;
         Ok(Self {
             core,
@@ -124,6 +135,8 @@ impl PhotoSorterApp {
             last_displayed_texture: None,
             pending_focus: None,
             error_message: None,
+            available_update: None,
+            available_update_rx,
         })
     }
 
@@ -207,6 +220,27 @@ impl PhotoSorterApp {
             self.sessions.favourite_after_create = None;
         }
         self.modal = None;
+    }
+
+    /// The user clicked the update notice. Every change is already saved to disk, so closing loses nothing.
+    pub fn restart_to_update(&mut self, ctx: &egui::Context) {
+        let Some(update) = self.available_update.take() else {
+            return;
+        };
+        match update.install {
+            UpdateInstall::Ready(ready) => {
+                let (pending, bytes) = *ready;
+                match updater::install_and_relaunch(&pending, bytes) {
+                    Ok(()) => ctx.send_viewport_cmd(egui::ViewportCommand::Close),
+                    Err(error) => self.error_message = Some(error.to_string()),
+                }
+            }
+            UpdateInstall::FromReleasePage => {
+                if let Err(error) = opener::open_browser(updater::RELEASES_PAGE) {
+                    self.error_message = Some(format!("Couldn't open {}: {error}", updater::RELEASES_PAGE));
+                }
+            }
+        }
     }
 
     fn toggle_favourite_optimistically(&mut self, source: PathBuf) {
@@ -321,6 +355,9 @@ impl eframe::App for PhotoSorterApp {
     fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         while let Ok(event) = self.core.events.try_recv() {
             self.apply(event);
+        }
+        if let Ok(update) = self.available_update_rx.try_recv() {
+            self.available_update = Some(update);
         }
         if self.modal.is_none() {
             // Not rebindable, so a bad binding can always be undone.

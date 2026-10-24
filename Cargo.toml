@@ -2,6 +2,7 @@
 name = "photo_sorter"
 version = "0.1.0"
 edition = "2024"
+authors = ["Nodus Veritatis"]
 description = "Blazingly fast photo culling: browse, favourite into per-event sessions, sync to Google Drive."
 publish = false
 
@@ -30,6 +31,28 @@ bytemuck = "1"
 rfd = "0.17"
 trash = "5"
 opener = "0.9"
+cargo-packager-updater = "0.2"
+
+# Installers: `cargo build --release && cargo packager --release` (CI: .github/workflows/release.yml).
+# Signing settings are injected by CI only, so local packaging works without certificates.
+[package.metadata.packager]
+product-name = "Photo Sorter"
+identifier = "com.nodusveritatis.photosorter"
+publisher = "Nodus Veritatis"
+homepage = "https://github.com/andrei399/photo-sorter"
+icons = ["assets/icon.png"]
+category = "Photography"
+
+[package.metadata.packager.macos]
+minimum-system-version = "13.0"
+info-plist-path = "assets/macos/Info.plist"
+
+# GPU drivers come from the system (Mesa or the vendor).
+[package.metadata.packager.deb]
+depends = ["libxkbcommon0", "libwayland-client0"]
+
+[package.metadata.packager.pacman]
+depends = ["libxkbcommon", "wayland"]
 
 [dev-dependencies]
 egui_kittest = { version = "0.37", features = ["eframe", "wgpu", "snapshot"] }

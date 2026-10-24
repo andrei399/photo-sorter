@@ -4,6 +4,28 @@ Goal: tagging `v*` produces signed installers for Windows, macOS (Apple Silicon 
 
 Tooling: **cargo-packager** (CrabNebula; formats: NSIS `.exe`, WiX `.msi`, `.app`, `.dmg`, `.deb`, `.AppImage`, pacman) plus the **cargo-packager-updater** crate. Exact env var and config key names below follow cargo-packager's docs. **Verify each against the current docs** during step 1, because they evolve.
 
+## Status (2026-10-24)
+
+Built and verified against the **cargo-packager 0.11.8 / cargo-packager-updater 0.2.3 source**. Locally on Linux: `cargo packager` produces the .deb, AppImage and pacman package (~10 MB each) with update signatures, and the updater accepts the signed AppImage and rejects a manifest with the wrong signature. The release workflow passes actionlint; it has not run on GitHub yet.
+
+Changes from the steps below:
+- **No `before-packaging-command`.** CI runs `cargo build --release --target <t>` itself. **Formats are passed per OS** with `--formats`: with one shared list, Linux would also try to build `.app` and NSIS.
+- **Signing settings are injected by CI only** (`signing-identity` for macOS, `sign-command` for Windows), so `cargo packager` still works on machines without certificates. Without the secrets, CI builds unsigned installers (useful for a dry run).
+- **The updater public key is a repo variable** (`UPDATER_PUBKEY`) compiled in with `option_env!`, not a committed file. Builds without it (every dev build) never replace themselves.
+- **The draft is created first by one job** (`gh release create --draft`), then every platform uploads to it. This avoids parallel jobs racing to create it. Asset names lose their spaces (GitHub would turn them into dots), and the macOS update bundles get the arch in their name.
+- **Privacy policy:** `PRIVACY.md` in this public repo, linked from Settings ("Photo Sorter vX · Privacy"). Move it to the Nodus Veritatis domain when phase 05's OAuth consent screen needs a link.
+- The "warn if Drive uploads are pending" check is skipped, because phase 05 is deferred.
+- Intel macOS builds on the `macos-15-intel` runner rather than cross-compiling (libjpeg-turbo's SIMD needs nasm for the target).
+
+**Your steps before the first tag** (no code):
+1. `cargo install cargo-packager --locked && cargo packager signer generate --path ~/photo-sorter-updater.key`. Back the private key and its password up offline (password manager + encrypted USB). **Losing it means installed copies can never update again.**
+2. GitHub → Settings → Secrets and variables → Actions:
+   - Variable `UPDATER_PUBKEY` = the contents of `~/photo-sorter-updater.key.pub`.
+   - Secrets `CARGO_PACKAGER_SIGN_PRIVATE_KEY` (key file contents) and `CARGO_PACKAGER_SIGN_PRIVATE_KEY_PASSWORD`.
+   - Apple (step 2): `APPLE_CERTIFICATE`, `APPLE_CERTIFICATE_PASSWORD`, `APPLE_SIGNING_IDENTITY`, `APPLE_ID`, `APPLE_PASSWORD`, `APPLE_TEAM_ID`.
+   - Azure Trusted Signing: secrets `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET`, `AZURE_TENANT_ID`; variables `AZURE_SIGNING_ENDPOINT`, `AZURE_SIGNING_ACCOUNT`, `AZURE_CERTIFICATE_PROFILE`.
+3. Bump `version` in `Cargo.toml`, merge, then `git tag v<version> && git push --tags`. Run qa.md on the draft, then publish it.
+
 ## Steps
 
 ### 1. Packaging config (`Cargo.toml` → `[package.metadata.packager]`)

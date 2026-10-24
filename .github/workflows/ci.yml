@@ -4,6 +4,8 @@ on:
   push:
     branches: [main]
   pull_request:
+  # The release workflow runs this first, so nothing red ships.
+  workflow_call:
 
 jobs:
   check:
@@ -19,18 +21,7 @@ jobs:
           components: clippy, rustfmt
       - uses: Swatinem/rust-cache@v2
 
-      - name: System deps (Linux)
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y cmake nasm pkg-config libxkbcommon-dev libwayland-dev \
-            libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev
-      - name: System deps (macOS)
-        if: runner.os == 'macOS'
-        run: brew install nasm
-      - name: System deps (Windows)
-        if: runner.os == 'Windows'
-        run: choco install nasm -y && echo "C:\Program Files\NASM" >> $env:GITHUB_PATH
+      - uses: ./.github/actions/system-deps
 
       - run: cargo fmt --check
       - run: cargo clippy --all-targets -- -D warnings

@@ -173,7 +173,7 @@ fn dialog_frame() -> Frame {
         .inner_margin(24)
 }
 
-pub(super) fn primary_button(text: &str) -> Button<'_> {
+pub(crate) fn primary_button(text: &str) -> Button<'_> {
     Button::new(RichText::new(text).font(semibold(13.0)).color(AMBER_INK))
         .fill(AMBER)
         .corner_radius(6)

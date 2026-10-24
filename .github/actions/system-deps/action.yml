@@ -1,0 +1,20 @@
+name: System dependencies
+description: Native build tools for libjpeg-turbo (cmake, nasm) and the windowing libraries egui links against.
+runs:
+  using: composite
+  steps:
+    - name: Linux
+      if: runner.os == 'Linux'
+      shell: bash
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y cmake nasm pkg-config libxkbcommon-dev libwayland-dev \
+          libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev
+    - name: macOS
+      if: runner.os == 'macOS'
+      shell: bash
+      run: brew install nasm
+    - name: Windows
+      if: runner.os == 'Windows'
+      shell: pwsh
+      run: choco install nasm -y && echo "C:\Program Files\NASM" >> $env:GITHUB_PATH
