@@ -3,11 +3,13 @@
 
 use crate::error::{AppError, AppResult};
 use crate::models::session::SessionId;
+use crate::models::settings::Settings;
 use crate::models::state::PersistedState;
 use crate::models::store::Store;
 use crate::processor::favourites::{self, MoveToTrash, ToggleOutcome};
 use crate::processor::photo_folder::{self, PhotoFolder};
 use crate::processor::sessions::{self, SessionDirInfo, SessionSummary};
+use crate::processor::settings;
 use crossbeam_channel::{Receiver, Sender, unbounded};
 use std::collections::HashSet;
 use std::path::PathBuf;
@@ -20,6 +22,7 @@ pub enum Command {
     SetActiveSession(SessionId),
     ForgetSession(SessionId),
     ToggleFavourite(PathBuf),
+    UpdateSettings(Settings),
 }
 
 #[derive(Debug, Clone)]
@@ -50,6 +53,7 @@ pub enum Event {
         source: PathBuf,
         error: AppError,
     },
+    SettingsChanged(Settings),
     Error(AppError),
 }
 
@@ -114,6 +118,9 @@ fn handle(store: &mut Store, command: Command, move_to_trash: MoveToTrash) -> Ve
         }
         Command::ForgetSession(id) => sessions::forget_session(store, id).map(|_| sessions_and_favourites(store)),
         Command::ToggleFavourite(source) => Ok(toggle_favourite(store, source, move_to_trash)),
+        Command::UpdateSettings(new_settings) => {
+            settings::update_settings(store, new_settings).map(|saved| vec![Event::SettingsChanged(saved)])
+        }
     };
     result.unwrap_or_else(|error| vec![Event::Error(error)])
 }

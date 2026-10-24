@@ -1,8 +1,9 @@
-//! Session switcher (dropdown of session cards), Ctrl+K quick switcher, New Session dialog, forget confirmation.
+//! Session switcher (dropdown of session cards), quick switcher, New Session dialog, forget confirmation.
 
 use crate::app::{Modal, NewSessionDraft, PhotoSorterApp, QuickSwitcherState};
 use crate::core::Command;
 use crate::models::session::SessionId;
+use crate::models::settings::{Action, KeyCombo};
 use crate::processor::sessions::{SessionSummary, session_name_to_folder_name};
 use crate::ui::palette::*;
 use egui::text::LayoutJob;
@@ -41,7 +42,14 @@ pub fn session_button(ui: &mut egui::Ui, app: &mut PhotoSorterApp) {
                 .corner_radius(8)
                 .inner_margin(8),
         )
-        .show(|ui| session_menu(ui, &app.sessions.sessions, app.sessions.active))
+        .show(|ui| {
+            session_menu(
+                ui,
+                &app.sessions.sessions,
+                app.sessions.active,
+                &app.key_map.hint(Action::NewSession),
+            )
+        })
         .and_then(|response| response.inner);
 
     match choice {
@@ -52,7 +60,12 @@ pub fn session_button(ui: &mut egui::Ui, app: &mut PhotoSorterApp) {
     }
 }
 
-fn session_menu(ui: &mut egui::Ui, sessions: &[SessionSummary], active: Option<SessionId>) -> Option<MenuChoice> {
+fn session_menu(
+    ui: &mut egui::Ui,
+    sessions: &[SessionSummary],
+    active: Option<SessionId>,
+    new_session_hint: &str,
+) -> Option<MenuChoice> {
     let mut choice = None;
     ui.label(RichText::new("SESSIONS").font(semibold(11.0)).color(MUTED_TEXT));
     ui.add_space(4.0);
@@ -69,7 +82,7 @@ fn session_menu(ui: &mut egui::Ui, sessions: &[SessionSummary], active: Option<S
     });
     ui.add_space(2.0);
     let new_session = Button::new(
-        RichText::new("+ New session (Ctrl+N)")
+        RichText::new(format!("+ New session ({new_session_hint})"))
             .font(semibold(13.0))
             .color(AMBER_INK),
     )
@@ -433,7 +446,11 @@ fn quick_switcher(ui: &mut egui::Ui, app: &mut PhotoSorterApp, state: &mut Quick
                                             .color(TEXT),
                                     );
                                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                                        ui.label(RichText::new("Ctrl+Enter").size(12.0).color(MUTED_TEXT));
+                                        ui.label(
+                                            RichText::new(KeyCombo::command(Key::Enter).to_string())
+                                                .size(12.0)
+                                                .color(MUTED_TEXT),
+                                        );
                                     });
                                 }
                             });
@@ -453,9 +470,12 @@ fn quick_switcher(ui: &mut egui::Ui, app: &mut PhotoSorterApp, state: &mut Quick
             ui.separator();
             Frame::NONE.inner_margin(Margin::symmetric(16, 8)).show(ui, |ui| {
                 ui.label(
-                    RichText::new("↑↓ choose    Enter switch    Ctrl+N new    Esc close")
-                        .size(12.0)
-                        .color(MUTED_TEXT),
+                    RichText::new(format!(
+                        "↑↓ choose    Enter switch    {} new    Esc close",
+                        app.key_map.hint(Action::NewSession)
+                    ))
+                    .size(12.0)
+                    .color(MUTED_TEXT),
                 );
             });
         });

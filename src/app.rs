@@ -2,10 +2,11 @@ use crate::core::{Command, CoreHandle, Event, spawn_core};
 use crate::error::AppResult;
 use crate::imaging::prefetch::ImageCache;
 use crate::models::session::SessionId;
+use crate::models::settings::Action;
 use crate::models::state::PersistedState;
 use crate::processor::photo_folder::{Photo, PhotoFolder};
 use crate::processor::sessions::{SessionDirInfo, SessionSummary};
-use crate::ui::keybindings::{Action, triggered_actions};
+use crate::ui::keybindings::KeyMap;
 use std::collections::HashSet;
 use std::path::PathBuf;
 use std::time::Instant;
@@ -63,6 +64,7 @@ pub struct PhotoSorterApp {
     pub index: usize,
     pub image_cache: ImageCache,
     pub sessions: SessionsView,
+    pub key_map: KeyMap,
     pub modal: Option<Modal>,
     /// Latest answer to `InspectSessionDir`, for the dialog's "folder already has N files" warning.
     pub inspected_session_dir: Option<(PathBuf, SessionDirInfo)>,
@@ -88,6 +90,7 @@ impl PhotoSorterApp {
             index: 0,
             image_cache: ImageCache::new(),
             sessions: SessionsView::default(),
+            key_map: KeyMap::default(),
             modal: None,
             inspected_session_dir: None,
             edge_bumped_at: None,
@@ -186,7 +189,16 @@ impl PhotoSorterApp {
 
     fn apply(&mut self, event: Event) {
         match event {
-            Event::Snapshot(state) => self.state = Some(state),
+            Event::Snapshot(state) => {
+                self.key_map = KeyMap::from_settings(&state.settings);
+                self.state = Some(state);
+            }
+            Event::SettingsChanged(settings) => {
+                self.key_map = KeyMap::from_settings(&settings);
+                if let Some(state) = &mut self.state {
+                    state.settings = settings;
+                }
+            }
             Event::FolderOpened(photo_folder) => {
                 self.photo_paths = photo_folder.photos.iter().map(|photo| photo.path.clone()).collect();
                 self.index = self
@@ -256,7 +268,7 @@ impl eframe::App for PhotoSorterApp {
             self.apply(event);
         }
         if self.modal.is_none() {
-            for action in triggered_actions(ctx) {
+            for action in self.key_map.triggered_actions(ctx) {
                 self.perform(action);
             }
         }

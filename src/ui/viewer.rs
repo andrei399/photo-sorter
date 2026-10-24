@@ -1,6 +1,7 @@
 //! Layout C: photo on black, a bottom panel with controls and a ±5 filmstrip.
 
 use crate::app::PhotoSorterApp;
+use crate::models::settings::Action;
 use crate::processor::photo_folder::PhotoFolder;
 use crate::ui::palette::*;
 use crate::ui::sessions;
@@ -166,7 +167,7 @@ fn favourite_button(ui: &mut egui::Ui, app: &PhotoSorterApp, source: &Path) -> e
         ink,
     );
     let chip = painter.layout_no_wrap(
-        "Enter".into(),
+        app.key_map.hint(Action::ToggleFavourite),
         FontId::proportional(11.0),
         if matches!(state, StarState::On | StarState::Saving) {
             AMBER_INK

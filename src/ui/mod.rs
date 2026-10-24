@@ -1,5 +1,5 @@
 use crate::app::PhotoSorterApp;
-use crate::ui::keybindings::Action;
+use crate::models::settings::Action;
 
 pub mod keybindings;
 mod palette;
@@ -26,7 +26,11 @@ fn start_screen(ui: &mut egui::Ui, app: &mut PhotoSorterApp) {
         ui.centered_and_justified(|ui| {
             ui.vertical_centered(|ui| {
                 ui.label("Open a folder to start");
-                if ui.button("Open folder").clicked() {
+                if ui
+                    .button("Open folder")
+                    .on_hover_text(app.key_map.hint(Action::OpenFolder))
+                    .clicked()
+                {
                     app.perform(Action::OpenFolder);
                 }
             });

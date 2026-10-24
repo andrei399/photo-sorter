@@ -1,7 +1,8 @@
 #![allow(dead_code)]
 
 use photo_sorter::core::{Command, CoreHandle, Event, spawn_core_with_trash};
-use photo_sorter::models::state::{PersistedState, Settings};
+use photo_sorter::models::settings::Settings;
+use photo_sorter::models::state::PersistedState;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 use tempfile::TempDir;
@@ -33,6 +34,7 @@ pub fn test_core_with_trash(move_to_trash: fn(&Path) -> std::io::Result<()>) -> 
     let state = PersistedState {
         settings: Settings {
             favourites_root: dir.path().join("favourites"),
+            ..Settings::default()
         },
         ..Default::default()
     };
@@ -138,6 +140,7 @@ pub fn app_harness(state_dir: &Path) -> AppHarness {
     let state = PersistedState {
         settings: Settings {
             favourites_root: state_dir.join("favourites"),
+            ..Settings::default()
         },
         ..Default::default()
     };
