@@ -3,7 +3,7 @@
 //! a 25–80 MB file). Every offset and length comes from untrusted input and is bounds-checked.
 
 use crate::error::{AppError, AppResult};
-use crate::imaging::decode::{Orientation, decode_full, decode_glimpse};
+use crate::imaging::decode::{GLIMPSE_TARGET_PX, Orientation, decode_full, decode_glimpse};
 use egui::ColorImage;
 use std::fs::File;
 use std::io::{BufReader, Read, Seek, SeekFrom};
@@ -23,7 +23,6 @@ const MAX_JPEG_MARKERS_BEFORE_FRAME: usize = 64;
 /// Bigger previews are first searched for their own EXIF thumbnail before being decoded for a glimpse.
 const GLIMPSE_MAX_PREVIEW_BYTES: u64 = 512 * 1024;
 const GLIMPSE_HEAD_BYTES: u64 = 64 * 1024;
-const GLIMPSE_TARGET_PX: [u32; 2] = [320, 320];
 
 const CANON_METADATA_UUID: [u8; 16] = *b"\x85\xc0\xb6\x87\x82\x0f\x11\xe0\x81\x11\xf4\xce\x46\x2b\x6a\x48";
 const CANON_PREVIEW_UUID: [u8; 16] = *b"\xea\xf4\x2b\x5e\x1c\x98\x4b\x88\xb9\xfb\xb7\xdc\x40\x6e\x4d\x16";

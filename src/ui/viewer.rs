@@ -1,4 +1,4 @@
-//! Layout C: photo on black, a bottom panel with controls and a ±5 filmstrip.
+//! Layout C: photo on black, a bottom panel with controls, a ±5 filmstrip and a whole-folder scrub bar.
 
 use crate::app::PhotoSorterApp;
 use crate::imaging::raw_preview::is_raw_file;
@@ -7,18 +7,21 @@ use crate::processor::photo_folder::{Photo, PhotoFolder};
 use crate::ui::palette::*;
 use crate::ui::sessions;
 use egui::{
-    Align, Align2, Color32, CornerRadius, FontId, Layout, Pos2, Rect, Sense, Stroke, StrokeKind, UiBuilder, Vec2, pos2,
-    vec2,
+    Align, Align2, Color32, CornerRadius, FontId, Layout, Pos2, Rect, RichText, Sense, Stroke, StrokeKind, TextEdit,
+    UiBuilder, Vec2, pos2, vec2,
 };
 use std::path::Path;
 use std::time::Duration;
 
-const PANEL_HEIGHT: f32 = 132.0;
+const PANEL_HEIGHT: f32 = 154.0;
 const FAILED_STAR_VISIBLE: Duration = Duration::from_millis(2500);
 const THUMB_SIZE: Vec2 = vec2(96.0, 64.0);
 const THUMB_GAP: f32 = 8.0;
 const THUMBS_EACH_SIDE: usize = 5;
 const EDGE_BUMP: Duration = Duration::from_millis(150);
+const SCRUB_HEIGHT: f32 = 16.0;
+const SCRUB_KNOB_RADIUS: f32 = 6.0;
+const GO_TO_FIELD_WIDTH: f32 = 56.0;
 
 pub fn draw(ui: &mut egui::Ui, app: &mut PhotoSorterApp, photo_folder: &PhotoFolder) {
     let mut jump_to: Option<usize> = None;
@@ -40,7 +43,9 @@ pub fn draw(ui: &mut egui::Ui, app: &mut PhotoSorterApp, photo_folder: &PhotoFol
             );
             controls_row(ui, app, photo_folder);
             ui.add_space(8.0);
-            jump_to = filmstrip(ui, app, photo_folder);
+            let clicked_thumbnail = filmstrip(ui, app, photo_folder);
+            ui.add_space(6.0);
+            jump_to = scrub_bar(ui, app, photo_folder).or(clicked_thumbnail);
         });
 
     egui::CentralPanel::default()
@@ -92,8 +97,15 @@ fn controls_row(ui: &mut egui::Ui, app: &mut PhotoSorterApp, photo_folder: &Phot
                     photo_folder.photos.len()
                 ),
                 0.0,
-                muted,
+                muted.clone(),
             );
+            if let Some(captured_at) = app
+                .image_cache
+                .entry(&photo.path)
+                .and_then(|entry| entry.captured_at.as_deref())
+            {
+                label.append(&format!(" · {captured_at}"), 0.0, muted);
+            }
             if let Some(badge) = file_types_badge(photo) {
                 let chip = egui::TextFormat {
                     background: CHIP_FILL,
@@ -104,14 +116,36 @@ fn controls_row(ui: &mut egui::Ui, app: &mut PhotoSorterApp, photo_folder: &Phot
         }
         None => label.append("No photos in this folder", 0.0, muted),
     }
-    ui.scope_builder(
-        UiBuilder::new()
-            .max_rect(center)
-            .layout(Layout::centered_and_justified(egui::Direction::LeftToRight)),
-        |ui| {
-            ui.label(label);
-        },
-    );
+    let current_file_name = photo_folder.photos.get(app.index).map(|photo| photo.file_name.as_str());
+    match current_file_name {
+        Some(file_name) if app.go_to_number_draft.is_some() => {
+            ui.scope_builder(
+                UiBuilder::new()
+                    .max_rect(center)
+                    .layout(Layout::left_to_right(Align::Center)),
+                |ui| go_to_number_field(ui, app, file_name, photo_folder.photos.len()),
+            );
+        }
+        _ => {
+            ui.scope_builder(
+                UiBuilder::new()
+                    .max_rect(center)
+                    .layout(Layout::centered_and_justified(egui::Direction::LeftToRight)),
+                |ui| {
+                    let go_to_hint = format!("Go to photo number ({})", app.key_map.hint(Action::GoToPhoto));
+                    if ui
+                        .label(label)
+                        .interact(Sense::click())
+                        .on_hover_cursor(egui::CursorIcon::Text)
+                        .on_hover_text(go_to_hint)
+                        .clicked()
+                    {
+                        app.perform(Action::GoToPhoto);
+                    }
+                },
+            );
+        }
+    }
 
     let current = photo_folder.photos.get(app.index).map(|photo| photo.path.clone());
     ui.scope_builder(
@@ -131,6 +165,46 @@ fn controls_row(ui: &mut egui::Ui, app: &mut PhotoSorterApp, photo_folder: &Phot
             }
         },
     );
+}
+
+/// Replaces the counter while jumping: `name · [____] / count`. Enter jumps, Esc or clicking away cancels.
+fn go_to_number_field(ui: &mut egui::Ui, app: &mut PhotoSorterApp, file_name: &str, photo_count: usize) {
+    let font = FontId::proportional(13.0);
+    let prefix = format!("{file_name} ·");
+    let suffix = format!("/ {photo_count}");
+    let text_width = |text: &str| {
+        ui.painter()
+            .layout_no_wrap(text.to_owned(), font.clone(), MUTED_TEXT)
+            .size()
+            .x
+    };
+    let row_width = text_width(&prefix) + GO_TO_FIELD_WIDTH + text_width(&suffix) + 2.0 * ui.spacing().item_spacing.x;
+    ui.add_space(((ui.available_width() - row_width) / 2.0).max(0.0));
+    ui.label(RichText::new(prefix).font(font.clone()).color(MUTED_TEXT));
+    let draft = app.go_to_number_draft.get_or_insert_default();
+    let response = ui.add(
+        TextEdit::singleline(draft)
+            .desired_width(GO_TO_FIELD_WIDTH)
+            .font(font.clone())
+            .align(Align2::RIGHT_CENTER),
+    );
+    draft.retain(|c| c.is_ascii_digit());
+    response.widget_info(|| egui::WidgetInfo::text_edit(true, &*draft, &*draft, "Go to photo number"));
+    ui.label(RichText::new(suffix).font(font).color(MUTED_TEXT));
+
+    if response.lost_focus() {
+        let typed_number = app
+            .go_to_number_draft
+            .take()
+            .and_then(|draft| draft.parse::<usize>().ok());
+        if let Some(number) = typed_number
+            && ui.input(|input| input.key_pressed(egui::Key::Enter))
+        {
+            app.index = number.clamp(1, photo_count) - 1;
+        }
+    } else if !response.has_focus() {
+        response.request_focus();
+    }
 }
 
 /// `JPG+RAW+XMP`: what favouriting this shot will copy. Plain single JPEGs get no badge.
@@ -337,6 +411,48 @@ fn filmstrip(ui: &mut egui::Ui, app: &PhotoSorterApp, photo_folder: &PhotoFolder
         }
     }
     clicked
+}
+
+/// The whole folder as one track: click or drag to jump, amber ticks show where the favourites are.
+fn scrub_bar(ui: &mut egui::Ui, app: &PhotoSorterApp, photo_folder: &PhotoFolder) -> Option<usize> {
+    let photo_count = photo_folder.photos.len();
+    if photo_count == 0 {
+        return None;
+    }
+    let (bar, response) = ui.allocate_exact_size(vec2(ui.available_width(), SCRUB_HEIGHT), Sense::click_and_drag());
+    let track = bar.shrink2(vec2(SCRUB_KNOB_RADIUS, 0.0));
+    let last_index = photo_count - 1;
+    let x_of = |index: usize| track.left() + track.width() * index as f32 / last_index.max(1) as f32;
+    let index_at = |x: f32| {
+        let fraction = ((x - track.left()) / track.width()).clamp(0.0, 1.0);
+        (fraction * last_index as f32).round() as usize
+    };
+
+    let painter = ui.painter();
+    let y = bar.center().y;
+    painter.hline(track.x_range(), y, Stroke::new(2.0, PANEL_BORDER));
+    painter.hline(
+        track.left()..=x_of(app.index),
+        y,
+        Stroke::new(2.0, Color32::from_gray(0x6a)),
+    );
+    for (index, photo) in photo_folder.photos.iter().enumerate() {
+        if app.sessions.favourited.contains(&photo.path) {
+            painter.vline(x_of(index), (y - 4.0)..=(y + 4.0), Stroke::new(2.0, AMBER));
+        }
+    }
+    let hovered = response.hover_pos().map(|pointer| index_at(pointer.x));
+    if let Some(hovered) = hovered {
+        painter.vline(x_of(hovered), (y - 5.0)..=(y + 5.0), Stroke::new(1.0, MUTED_TEXT));
+    }
+    painter.circle_filled(pos2(x_of(app.index), y), SCRUB_KNOB_RADIUS, TEXT);
+
+    let target = response.interact_pointer_pos().map(|pointer| index_at(pointer.x));
+    response.widget_info(|| egui::WidgetInfo::slider(true, (app.index + 1) as f64, "Photo position"));
+    if let Some(hovered) = hovered {
+        response.on_hover_text_at_pointer(format!("{} · {}", hovered + 1, photo_folder.photos[hovered].file_name));
+    }
+    target
 }
 
 /// Paints the current photo; left/right thirds are click zones. Returns a navigation target.

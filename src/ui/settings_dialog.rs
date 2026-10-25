@@ -18,7 +18,7 @@ const GROUPS: [&str; 3] = ["BROWSING", "FAVOURITES", "FILES"];
 
 fn group_of(action: Action) -> &'static str {
     match action {
-        Action::Next | Action::Previous | Action::First | Action::Last => "BROWSING",
+        Action::Next | Action::Previous | Action::First | Action::Last | Action::GoToPhoto => "BROWSING",
         Action::ToggleFavourite | Action::NewSession | Action::QuickSwitcher => "FAVOURITES",
         Action::OpenFolder => "FILES",
     }

@@ -9,6 +9,8 @@ use fast_image_resize::{PixelType, ResizeAlg, ResizeOptions, Resizer, images::Im
 use std::io::Cursor;
 
 const JPEG_MAGIC: [u8; 3] = [0xFF, 0xD8, 0xFF];
+/// Glimpses only fill filmstrip thumbnails and the first frames of a cold photo.
+pub const GLIMPSE_TARGET_PX: [u32; 2] = [320, 320];
 
 /// Output is at most ~1.15× `target_px` per side for JPEG (next DCT step up), exact fit for other formats,
 /// and never larger than the source. `orientation_override` replaces the embedded EXIF (RAW previews lack it).
@@ -167,6 +169,24 @@ impl Orientation {
 
 fn read_exif(bytes: &[u8]) -> Option<exif::Exif> {
     exif::Reader::new().read_from_container(&mut Cursor::new(bytes)).ok()
+}
+
+/// When the shutter fired, as `2024-06-15 14:32`, read from the file's first bytes.
+pub fn read_capture_time(file_head: &[u8]) -> Option<String> {
+    // TIFF-based RAWs point past the head; keep whichever IFDs did fit.
+    let exif = exif::Reader::new()
+        .continue_on_error(true)
+        .read_from_container(&mut Cursor::new(file_head))
+        .or_else(|error| error.distill_partial_result(|_| {}))
+        .ok()?;
+    let exif::Value::Ascii(ref text) = exif.get_field(exif::Tag::DateTimeOriginal, exif::In::PRIMARY)?.value else {
+        return None;
+    };
+    let time = exif::DateTime::from_ascii(text.first()?).ok()?;
+    Some(format!(
+        "{:04}-{:02}-{:02} {:02}:{:02}",
+        time.year, time.month, time.day, time.hour, time.minute
+    ))
 }
 
 fn exif_orientation(exif: Option<&exif::Exif>) -> Orientation {

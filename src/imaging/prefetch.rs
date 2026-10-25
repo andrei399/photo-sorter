@@ -2,7 +2,7 @@
 //! so pressing → swaps a texture handle instead of decoding.
 
 use crate::error::AppResult;
-use crate::imaging::decode::{decode_full, decode_glimpse};
+use crate::imaging::decode::{GLIMPSE_TARGET_PX, decode_full, decode_glimpse, read_capture_time};
 use crate::imaging::raw_preview::{decode_raw_glimpse, extract_raw_preview, is_raw_file};
 use crossbeam_channel::{Receiver, Sender, unbounded};
 use std::collections::HashMap;
@@ -34,6 +34,8 @@ pub enum Slot {
 pub struct CacheEntry {
     pub glimpse: Slot,
     pub full: Slot,
+    /// EXIF capture time, read alongside the glimpse since both live in the file head.
+    pub captured_at: Option<String>,
     /// Viewport size the full decode was made for; a much bigger window triggers a sharper re-decode.
     full_decoded_for: [u32; 2],
 }
@@ -64,6 +66,7 @@ struct DecodeResult {
     tier: Tier,
     target_px: [u32; 2],
     outcome: DecodeOutcome,
+    captured_at: Option<String>,
 }
 
 pub struct ImageCache {
@@ -252,6 +255,9 @@ impl ImageCache {
             if result.tier == Tier::Full && result.target_px != entry.full_decoded_for {
                 continue;
             }
+            if result.captured_at.is_some() {
+                entry.captured_at = result.captured_at;
+            }
             *slot = match result.outcome {
                 DecodeOutcome::Ready(texture) => Slot::Ready(texture),
                 DecodeOutcome::Failed(message) => Slot::Failed(message),
@@ -267,15 +273,22 @@ fn run_decode_job(ctx: &egui::Context, job: DecodeJob, focus: &AtomicUsize) -> D
         Tier::Glimpse => distance <= GLIMPSE_RADIUS_AHEAD,
         Tier::Full => distance <= FULL_WINDOW_FORWARD.len(),
     };
+    let mut captured_at = None;
     let outcome = if !still_wanted {
         DecodeOutcome::Skipped
     } else {
         let is_raw = is_raw_file(&job.path);
         let decoded = match job.tier {
-            Tier::Glimpse if is_raw => decode_raw_glimpse(&job.path).ok_or_else(|| "no embedded thumbnail".to_owned()),
             Tier::Glimpse => read_file_head(&job.path)
                 .map_err(|error| error.to_string())
-                .and_then(|head| decode_glimpse(&head).ok_or_else(|| "no embedded thumbnail".to_owned())),
+                .and_then(|head| {
+                    captured_at = read_capture_time(&head);
+                    if is_raw {
+                        decode_raw_glimpse(&job.path).ok_or_else(|| "no embedded thumbnail".to_owned())
+                    } else {
+                        decode_jpeg_or_other_glimpse(&job.path, &head).map_err(|error| error.to_string())
+                    }
+                }),
             Tier::Full => decode_full_tier(&job, is_raw).map_err(|error| error.to_string()),
         };
         match decoded {
@@ -295,6 +308,7 @@ fn run_decode_job(ctx: &egui::Context, job: DecodeJob, focus: &AtomicUsize) -> D
         tier: job.tier,
         target_px: job.target_px,
         outcome,
+        captured_at,
     }
 }
 
@@ -307,6 +321,15 @@ fn decode_full_tier(job: &DecodeJob, is_raw: bool) -> AppResult<egui::ColorImage
         (std::fs::read(&job.path)?, None)
     };
     decode_full(&bytes, job.target_px, job.max_texture_side, orientation)
+}
+
+/// Exported/edited JPEGs and PNGs often lack an EXIF thumbnail; a 1/8-scale decode keeps their filmstrip
+/// thumbnail from staying blank outside the full-decode window.
+fn decode_jpeg_or_other_glimpse(path: &Path, head: &[u8]) -> AppResult<egui::ColorImage> {
+    if let Some(glimpse) = decode_glimpse(head) {
+        return Ok(glimpse);
+    }
+    decode_full(&std::fs::read(path)?, GLIMPSE_TARGET_PX, usize::MAX, None)
 }
 
 fn read_file_head(path: &Path) -> std::io::Result<Vec<u8>> {

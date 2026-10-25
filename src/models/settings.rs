@@ -11,18 +11,20 @@ pub enum Action {
     Previous,
     First,
     Last,
+    GoToPhoto,
     NewSession,
     QuickSwitcher,
     OpenFolder,
 }
 
 impl Action {
-    pub const ALL: [Self; 8] = [
+    pub const ALL: [Self; 9] = [
         Self::ToggleFavourite,
         Self::Next,
         Self::Previous,
         Self::First,
         Self::Last,
+        Self::GoToPhoto,
         Self::NewSession,
         Self::QuickSwitcher,
         Self::OpenFolder,
@@ -35,6 +37,7 @@ impl Action {
             Self::Previous => "Previous photo",
             Self::First => "First photo",
             Self::Last => "Last photo",
+            Self::GoToPhoto => "Go to photo number",
             Self::NewSession => "New session",
             Self::QuickSwitcher => "Switch session",
             Self::OpenFolder => "Open folder",
@@ -121,6 +124,7 @@ pub fn default_keybindings() -> Keybindings {
                 Action::Previous => KeyCombo::plain(Key::ArrowLeft),
                 Action::First => KeyCombo::plain(Key::Home),
                 Action::Last => KeyCombo::plain(Key::End),
+                Action::GoToPhoto => KeyCombo::plain(Key::G),
                 Action::NewSession => KeyCombo::command(Key::N),
                 Action::QuickSwitcher => KeyCombo::command(Key::K),
                 Action::OpenFolder => KeyCombo::command(Key::O),

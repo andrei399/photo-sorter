@@ -91,6 +91,8 @@ pub struct PhotoSorterApp {
     /// Same order as `photo_folder.photos`; kept separately because the cache works on paths.
     photo_paths: Vec<PathBuf>,
     pub index: usize,
+    /// Digits typed into the counter while jumping to a photo number; `None` when the counter is a plain label.
+    pub go_to_number_draft: Option<String>,
     pub image_cache: ImageCache,
     pub sessions: SessionsView,
     pub key_map: KeyMap,
@@ -126,6 +128,7 @@ impl PhotoSorterApp {
             photo_folder: None,
             photo_paths: Vec::new(),
             index: 0,
+            go_to_number_draft: None,
             image_cache: ImageCache::new(),
             sessions: SessionsView::default(),
             key_map: KeyMap::default(),
@@ -158,6 +161,8 @@ impl PhotoSorterApp {
             Action::Next | Action::Previous => self.edge_bumped_at = Some(Instant::now()),
             Action::First => self.index = 0,
             Action::Last => self.index = photo_count.saturating_sub(1),
+            Action::GoToPhoto if photo_count > 0 => self.go_to_number_draft = Some(String::new()),
+            Action::GoToPhoto => {}
             Action::ToggleFavourite => self.toggle_current_favourite(),
             Action::NewSession => self.open_new_session_dialog(String::new()),
             Action::QuickSwitcher => self.modal = Some(Modal::QuickSwitcher(QuickSwitcherState::default())),

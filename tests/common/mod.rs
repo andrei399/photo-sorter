@@ -126,10 +126,33 @@ pub fn with_exif(jpeg: &[u8], orientation: u16, thumbnail: Option<&[u8]>) -> Vec
         tiff.extend_from_slice(&0u32.to_be_bytes());
         tiff.extend_from_slice(thumbnail);
     }
+    splice_exif(jpeg, &tiff)
+}
+
+/// A camera JPEG's EXIF reduced to its capture time: IFD0 → Exif IFD → DateTimeOriginal (`2024:06:15 14:32:07`).
+pub fn with_capture_time(jpeg: &[u8], date_time_original: &str) -> Vec<u8> {
+    let mut tiff: Vec<u8> = b"MM\x00\x2a\x00\x00\x00\x08".to_vec();
+    // IFD0 at 8: ExifIFDPointer (LONG) → Exif IFD at 26.
+    tiff.extend_from_slice(&1u16.to_be_bytes());
+    tiff.extend_from_slice(&[0x87, 0x69, 0x00, 0x04, 0x00, 0x00, 0x00, 0x01]);
+    tiff.extend_from_slice(&26u32.to_be_bytes());
+    tiff.extend_from_slice(&0u32.to_be_bytes());
+    // Exif IFD at 26: DateTimeOriginal (ASCII, NUL-terminated) stored at 44.
+    let ascii = [date_time_original.as_bytes(), b"\0"].concat();
+    tiff.extend_from_slice(&1u16.to_be_bytes());
+    tiff.extend_from_slice(&[0x90, 0x03, 0x00, 0x02]);
+    tiff.extend_from_slice(&(ascii.len() as u32).to_be_bytes());
+    tiff.extend_from_slice(&44u32.to_be_bytes());
+    tiff.extend_from_slice(&0u32.to_be_bytes());
+    tiff.extend_from_slice(&ascii);
+    splice_exif(jpeg, &tiff)
+}
+
+fn splice_exif(jpeg: &[u8], tiff: &[u8]) -> Vec<u8> {
     let mut app1 = vec![0xFF, 0xE1];
     app1.extend_from_slice(&((2 + 6 + tiff.len()) as u16).to_be_bytes());
     app1.extend_from_slice(b"Exif\x00\x00");
-    app1.extend_from_slice(&tiff);
+    app1.extend_from_slice(tiff);
 
     let mut spliced = jpeg[..2].to_vec();
     spliced.extend_from_slice(&app1);

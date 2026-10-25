@@ -80,3 +80,15 @@ fn unreadable_photo_becomes_failed_slot() {
     });
     assert!(cache.best_texture(&broken).is_none());
 }
+
+#[test]
+fn filmstrip_neighbours_without_exif_thumbnail_still_get_a_texture() {
+    let (_dir, paths) = write_photos(20);
+    let ctx = egui::Context::default();
+    let mut cache = ImageCache::new();
+
+    // ±5 is what the filmstrip shows; the full window alone only covers -2..=4.
+    want_until(&mut cache, &ctx, &paths, 10, |cache| {
+        (5..=15).all(|i| cache.best_texture(&paths[i]).is_some())
+    });
+}
