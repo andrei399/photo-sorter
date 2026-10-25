@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 authors = ["Tudor Andrei-Cristian"]
 description = "Blazingly fast photo culling: browse, favourite into per-event sessions, sync to Google Drive."
+license = "GPL-3.0-or-later"
 publish = false
 
 [[bin]]
