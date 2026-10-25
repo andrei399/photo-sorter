@@ -19,7 +19,11 @@ fn run(renderer: eframe::Renderer) -> eframe::Result {
         viewport: egui::ViewportBuilder::default()
             .with_title("Photo Sorter")
             .with_inner_size([1280.0, 800.0])
-            .with_min_inner_size([800.0, 500.0]),
+            .with_min_inner_size([800.0, 500.0])
+            .with_icon(
+                eframe::icon_data::from_png_bytes(include_bytes!("../assets/icon.png"))
+                    .expect("bundled icon is a valid PNG"),
+            ),
         ..Default::default()
     };
     eframe::run_native(
