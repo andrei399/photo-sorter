@@ -80,6 +80,15 @@ fn update_notice_waits_for_the_user_and_can_be_dismissed() {
     assert!(harness.state().available_update.is_none());
 }
 
+// Background decodes repaint at arbitrary times, so wait for the input instead of `harness.run()` settling.
+fn type_into_go_to_input(harness: &mut common::AppHarness, number: &str) {
+    use egui_kittest::kittest::Queryable;
+    run_until(harness, "go-to-photo input open", |h| {
+        h.query_by_role(egui::accesskit::Role::TextInput).is_some()
+    });
+    harness.get_by_role(egui::accesskit::Role::TextInput).type_text(number);
+}
+
 #[test]
 fn typing_a_number_jumps_to_that_photo_and_escape_cancels() {
     use egui_kittest::kittest::Queryable;
@@ -92,8 +101,7 @@ fn typing_a_number_jumps_to_that_photo_and_escape_cancels() {
     run_until_label(&mut harness, "IMG_1.jpg · 1 / 5");
 
     harness.key_press(Key::G);
-    harness.run();
-    harness.get_by_role(egui::accesskit::Role::TextInput).type_text("4");
+    type_into_go_to_input(&mut harness, "4");
     harness.key_press(Key::Enter);
     run_until_label(&mut harness, "IMG_4.jpg · 4 / 5");
     assert!(
@@ -103,14 +111,12 @@ fn typing_a_number_jumps_to_that_photo_and_escape_cancels() {
 
     // Out-of-range numbers land on the last photo; Escape leaves the index alone.
     harness.get_by_label("IMG_4.jpg · 4 / 5").click();
-    harness.run();
-    harness.get_by_role(egui::accesskit::Role::TextInput).type_text("99");
+    type_into_go_to_input(&mut harness, "99");
     harness.key_press(Key::Enter);
     run_until_label(&mut harness, "IMG_5.jpg · 5 / 5");
 
     harness.key_press(Key::G);
-    harness.run();
-    harness.get_by_role(egui::accesskit::Role::TextInput).type_text("2");
+    type_into_go_to_input(&mut harness, "2");
     harness.key_press(Key::Escape);
     run_until_label(&mut harness, "IMG_5.jpg · 5 / 5");
     assert!(harness.state().go_to_number_draft.is_none());
