@@ -2,6 +2,7 @@ use crate::app::PhotoSorterApp;
 use crate::integrations::updater::UpdateInstall;
 use crate::models::settings::Action;
 
+mod cloud;
 pub mod keybindings;
 mod palette;
 

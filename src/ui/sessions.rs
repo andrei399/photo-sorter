@@ -188,7 +188,7 @@ pub(super) fn secondary_button(text: &str) -> Button<'_> {
         .min_size(vec2(0.0, 36.0))
 }
 
-fn styled_text_edit(text: &mut String, focused: bool) -> TextEdit<'_> {
+pub(super) fn styled_text_edit(text: &mut String, focused: bool) -> TextEdit<'_> {
     TextEdit::singleline(text)
         .font(FontId::proportional(15.0))
         .margin(Margin::symmetric(12, 10))

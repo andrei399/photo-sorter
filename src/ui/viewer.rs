@@ -163,6 +163,8 @@ fn controls_row(ui: &mut egui::Ui, app: &mut PhotoSorterApp, photo_folder: &Phot
             if settings_icon_button(ui).on_hover_text(settings_hint).clicked() {
                 app.open_settings();
             }
+            ui.add_space(8.0);
+            super::cloud::upload_chip(ui, app);
         },
     );
 }

@@ -1,3 +1,4 @@
+use crate::models::cloud::{CloudAccount, CloudProvider};
 use crate::models::session::{Session, SessionId};
 use crate::models::settings::Settings;
 use serde::{Deserialize, Serialize};
@@ -16,6 +17,9 @@ pub struct PersistedState {
     pub active_session_id: Option<SessionId>,
     #[serde(default)]
     pub settings: Settings,
+    /// At most one per provider.
+    #[serde(default)]
+    pub cloud_accounts: Vec<CloudAccount>,
 }
 
 impl PersistedState {
@@ -23,6 +27,10 @@ impl PersistedState {
         self.sessions
             .iter()
             .find(|session| Some(session.id) == self.active_session_id)
+    }
+
+    pub fn cloud_account(&self, provider: CloudProvider) -> Option<&CloudAccount> {
+        self.cloud_accounts.iter().find(|account| account.provider == provider)
     }
 
     pub fn active_session_mut(&mut self) -> Option<&mut Session> {

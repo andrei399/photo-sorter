@@ -3,7 +3,7 @@ name = "photo_sorter"
 version = "0.1.0"
 edition = "2024"
 authors = ["Tudor Andrei-Cristian"]
-description = "Blazingly fast photo culling: browse, favourite into per-event sessions, sync to Google Drive."
+description = "Blazingly fast photo culling: browse, favourite into per-event sessions, upload to Google Drive, OneDrive, Dropbox or WebDAV."
 license = "GPL-3.0-or-later"
 publish = false
 
@@ -33,6 +33,13 @@ rfd = "0.17"
 trash = "5"
 opener = "0.9"
 cargo-packager-updater = "0.2"
+# Cloud uploads. reqwest 0.12 + rustls is what cargo-packager-updater already pulls in.
+tokio = { version = "1", features = ["rt", "macros", "sync", "time", "net", "fs", "io-util"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "rustls-tls-native-roots"] }
+tokio-util = { version = "0.7", features = ["io"] }
+keyring = { version = "3", features = ["apple-native", "windows-native", "async-secret-service", "tokio", "crypto-rust"] }
+sha2 = "0.10"
+base64 = "0.22"
 
 # Installers: `cargo build --release && cargo packager --release` (CI: .github/workflows/release.yml).
 # Signing settings are injected by CI only, so local packaging works without certificates.
@@ -63,6 +70,8 @@ winresource = "0.1"
 egui_kittest = { version = "0.37", features = ["eframe", "wgpu", "snapshot"] }
 jpeg-decoder = "0.3"
 tempfile = "3"
+wiremock = "0.6"
+tokio = { version = "1", features = ["rt-multi-thread"] }
 zune-jpeg = "0.4"
 
 [profile.release]

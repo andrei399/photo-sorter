@@ -2,6 +2,7 @@ use crate::error::{AppError, AppResult};
 use crate::models::session::Favourite;
 use crate::models::store::Store;
 use crate::processor::photo_folder::{self, split_shot_name};
+use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -52,7 +53,13 @@ pub fn toggle_favourite(store: &mut Store, source: &Path, move_to_trash: MoveToT
             if copy_companions {
                 shot_files.extend(photo_folder::companions_of(source));
             }
-            let mut copied_names = copy_shot_into_session_dir(&shot_files, &session.dir)?.into_iter();
+            // A name whose old cloud copy isn't deleted yet would look already uploaded, so it isn't reused.
+            let names_in_cloud: HashSet<&str> = session
+                .remote_file_ids
+                .values()
+                .flat_map(|remote_files| remote_files.keys().map(String::as_str))
+                .collect();
+            let mut copied_names = copy_shot_into_session_dir(&shot_files, &session.dir, &names_in_cloud)?.into_iter();
             let file_name = copied_names.next().expect("the shot always includes the source");
             session.favourites.insert(
                 source.to_path_buf(),
@@ -70,7 +77,11 @@ pub fn toggle_favourite(store: &mut Store, source: &Path, move_to_trash: MoveToT
 
 /// All or nothing: a shot is never half in the session folder. Returns the names used inside `session_dir`,
 /// in the order of `shot_files`.
-fn copy_shot_into_session_dir(shot_files: &[PathBuf], session_dir: &Path) -> AppResult<Vec<String>> {
+fn copy_shot_into_session_dir(
+    shot_files: &[PathBuf],
+    session_dir: &Path,
+    names_in_cloud: &HashSet<&str>,
+) -> AppResult<Vec<String>> {
     let source_names = shot_files
         .iter()
         .map(|file| {
@@ -81,7 +92,7 @@ fn copy_shot_into_session_dir(shot_files: &[PathBuf], session_dir: &Path) -> App
         .collect::<AppResult<Vec<&str>>>()?;
     // The session folder may have been deleted or live on an unplugged drive that is back now.
     fs::create_dir_all(session_dir)?;
-    let copy_names = free_shot_names_in(session_dir, &source_names);
+    let copy_names = free_shot_names_in(session_dir, &source_names, names_in_cloud);
     for (copied_count, (source, copy_name)) in shot_files.iter().zip(&copy_names).enumerate() {
         if let Err(error) = copy_atomically(source, &session_dir.join(copy_name)) {
             // Copies made moments ago in this toggle, never shown as a favourite: deleting them loses nothing.
@@ -109,7 +120,7 @@ fn copy_atomically(source: &Path, destination: &Path) -> AppResult<()> {
 
 /// `IMG_0001.JPG`, then `IMG_0001 (2).JPG`… (two cameras happily produce the same names). Every file of a shot
 /// gets the same suffix (`IMG_0001 (2).CR3`, `IMG_0001 (2).CR3.xmp`) so Lightroom still pairs them.
-fn free_shot_names_in(dir: &Path, file_names: &[&str]) -> Vec<String> {
+fn free_shot_names_in(dir: &Path, file_names: &[&str], names_in_cloud: &HashSet<&str>) -> Vec<String> {
     let with_suffix = |suffix: &str| -> Vec<String> {
         file_names
             .iter()
@@ -122,6 +133,10 @@ fn free_shot_names_in(dir: &Path, file_names: &[&str]) -> Vec<String> {
     std::iter::once(String::new())
         .chain((2..).map(|n| format!(" ({n})")))
         .map(|suffix| with_suffix(&suffix))
-        .find(|names| names.iter().all(|name| !dir.join(name).exists()))
+        .find(|names| {
+            names
+                .iter()
+                .all(|name| !dir.join(name).exists() && !names_in_cloud.contains(name.as_str()))
+        })
         .expect("an unbounded range always yields free names")
 }

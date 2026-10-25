@@ -1,10 +1,13 @@
-use crate::core::{Command, CoreHandle, Event, spawn_core};
+use crate::core::{Command, CoreHandle, Event, spawn_core_with};
 use crate::error::AppResult;
 use crate::imaging::prefetch::ImageCache;
+use crate::integrations::cloud::{CloudConfig, CloudProblem};
 use crate::integrations::updater::{self, AvailableUpdate, UpdateInstall};
+use crate::models::cloud::CloudProvider;
 use crate::models::session::SessionId;
 use crate::models::settings::{Action, Settings};
 use crate::models::state::PersistedState;
+use crate::processor::cloud_sync::CloudStatus;
 use crate::processor::photo_folder::{Photo, PhotoFolder};
 use crate::processor::sessions::{SessionDirInfo, SessionSummary};
 use crate::ui::keybindings::KeyMap;
@@ -52,12 +55,31 @@ pub struct SettingsDraft {
     /// Sent to the core; the dialog closes when it confirms.
     pub saving: bool,
     pub error: Option<String>,
+    /// Shown in place of the Cloud page's cards while the user types a WebDAV server's details.
+    pub webdav_form: Option<WebDavForm>,
+    /// Disconnect was clicked once on this provider's card; the second click confirms.
+    pub confirm_disconnect: Option<CloudProvider>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum SettingsPage {
     Shortcuts,
     Storage,
+    Cloud,
+}
+
+#[derive(Default)]
+pub struct WebDavForm {
+    pub url: String,
+    pub username: String,
+    pub password: String,
+}
+
+/// A sign-in the user started: shown on that provider's card until it connects or fails.
+pub struct CloudConnectAttempt {
+    pub provider: CloudProvider,
+    /// `None` while waiting for the browser (or the WebDAV server).
+    pub error: Option<String>,
 }
 
 /// Waiting for the next key press to bind to `action`.
@@ -108,11 +130,19 @@ pub struct PhotoSorterApp {
     pub error_message: Option<String>,
     /// A newer release, found and downloaded in the background; offered until the user restarts.
     pub available_update: Option<AvailableUpdate>,
+    /// One per provider, from the core.
+    pub cloud_statuses: Vec<CloudStatus>,
+    pub cloud_connect: Option<CloudConnectAttempt>,
     available_update_rx: Receiver<AvailableUpdate>,
 }
 
 impl PhotoSorterApp {
     pub fn new(egui_ctx: &egui::Context, state_path: PathBuf) -> AppResult<Self> {
+        Self::new_with_cloud(egui_ctx, state_path, CloudConfig::production())
+    }
+
+    /// Tests point the cloud providers at a fake server.
+    pub fn new_with_cloud(egui_ctx: &egui::Context, state_path: PathBuf, cloud_config: CloudConfig) -> AppResult<Self> {
         crate::ui::install_theme(egui_ctx);
         let repaint_ctx = egui_ctx.clone();
         let (available_update_tx, available_update_rx) = crossbeam_channel::bounded(1);
@@ -121,7 +151,12 @@ impl PhotoSorterApp {
             let _ = available_update_tx.send(update);
             update_ctx.request_repaint();
         });
-        let core = spawn_core(state_path, move || repaint_ctx.request_repaint())?;
+        let core = spawn_core_with(
+            state_path,
+            crate::processor::favourites::move_to_os_trash,
+            cloud_config,
+            move || repaint_ctx.request_repaint(),
+        )?;
         Ok(Self {
             core,
             state: None,
@@ -139,6 +174,8 @@ impl PhotoSorterApp {
             pending_focus: None,
             error_message: None,
             available_update: None,
+            cloud_statuses: Vec::new(),
+            cloud_connect: None,
             available_update_rx,
         })
     }
@@ -188,16 +225,49 @@ impl PhotoSorterApp {
     }
 
     pub fn open_settings(&mut self) {
+        self.open_settings_at(SettingsPage::Shortcuts);
+    }
+
+    pub fn open_settings_at(&mut self, page: SettingsPage) {
         let Some(state) = &self.state else { return };
         self.modal = Some(Modal::Settings(SettingsDraft {
             settings: state.settings.clone(),
-            page: SettingsPage::Shortcuts,
+            page,
             capture: None,
             google_drive_root: None,
             saving: false,
             error: None,
+            webdav_form: None,
+            confirm_disconnect: None,
         }));
         self.send(Command::DetectGoogleDrive);
+    }
+
+    pub fn cloud_status(&self, provider: CloudProvider) -> Option<&CloudStatus> {
+        self.cloud_statuses.iter().find(|status| status.provider == provider)
+    }
+
+    /// OAuth providers open the browser; WebDAV needs its form, prefilled with the server it used before.
+    pub fn connect_cloud(&mut self, provider: CloudProvider) {
+        if provider == CloudProvider::WebDav {
+            let server = self
+                .cloud_status(provider)
+                .and_then(|status| status.account.as_ref()?.webdav.clone());
+            if !matches!(&self.modal, Some(Modal::Settings(draft)) if draft.page == SettingsPage::Cloud) {
+                self.open_settings_at(SettingsPage::Cloud);
+            }
+            if let Some(Modal::Settings(draft)) = &mut self.modal {
+                draft.webdav_form = Some(server.map_or_else(WebDavForm::default, |server| WebDavForm {
+                    url: server.url,
+                    username: server.username,
+                    password: String::new(),
+                }));
+            }
+            self.cloud_connect = None;
+            return;
+        }
+        self.cloud_connect = Some(CloudConnectAttempt { provider, error: None });
+        self.send(Command::ConnectCloud(provider));
     }
 
     pub fn favourites_root(&self) -> PathBuf {
@@ -350,6 +420,34 @@ impl PhotoSorterApp {
                 self.sessions.failed = Some((source.clone(), Instant::now()));
                 flip_membership(&mut self.sessions.favourited, &source);
                 self.error_message = Some(error.to_string());
+            }
+            Event::CloudStatusChanged(statuses) => {
+                self.cloud_statuses = statuses;
+                let connected = self.cloud_connect.as_ref().is_some_and(|attempt| {
+                    attempt.error.is_none()
+                        && self.cloud_status(attempt.provider).is_some_and(|status| {
+                            status.account.is_some() && status.problem != Some(CloudProblem::NeedsReconnect)
+                        })
+                });
+                if connected {
+                    if let Some(Modal::Settings(draft)) = &mut self.modal
+                        && self.cloud_connect.as_ref().map(|attempt| attempt.provider) == Some(CloudProvider::WebDav)
+                    {
+                        draft.webdav_form = None;
+                    }
+                    self.cloud_connect = None;
+                }
+            }
+            Event::CloudConnectFailed { provider, error } => {
+                if matches!(self.modal, Some(Modal::Settings(_))) {
+                    self.cloud_connect = Some(CloudConnectAttempt {
+                        provider,
+                        error: Some(error),
+                    });
+                } else {
+                    self.cloud_connect = None;
+                    self.error_message = Some(format!("{}: {error}", provider.label()));
+                }
             }
             Event::Error(error) => self.error_message = Some(error.to_string()),
         }

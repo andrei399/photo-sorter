@@ -1,3 +1,4 @@
+use crate::models::cloud::CloudProvider;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -21,6 +22,10 @@ pub struct Session {
     /// Key = absolute source path; value = what we copied into `dir` for it.
     #[serde(default)]
     pub favourites: BTreeMap<PathBuf, Favourite>,
+    /// What each provider holds: file name inside `dir` → the provider's id for it. Diffed against `favourites`
+    /// to find what still has to be uploaded or deleted, so this map is the whole upload queue.
+    #[serde(default)]
+    pub remote_file_ids: BTreeMap<CloudProvider, BTreeMap<String, String>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

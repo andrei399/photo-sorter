@@ -1,6 +1,6 @@
 # Photo Sorter
 
-Fast photo culling for event photographers. Open a folder, browse full-screen, press **Enter** to favourite. Favourites are copied into the folder of the active **session** (one per event), ready to hand to a client or drop into Google Drive.
+Fast photo culling for event photographers. Open a folder, browse full-screen, press **Enter** to favourite. Favourites are copied into the folder of the active **session** (one per event) and, if you like, uploaded to every cloud service you switch on.
 
 Native Rust (egui + wgpu), no web runtime. Windows 10/11, macOS 13+, Linux (X11 and Wayland).
 
@@ -10,7 +10,7 @@ Native Rust (egui + wgpu), no web runtime. Windows 10/11, macOS 13+, Linux (X11 
 - **Sessions.** One folder per event. Favouriting copies the photo there; un-favouriting moves the copy to the OS trash. Originals are never modified.
 - **RAW support.** CR2, CR3, NEF, NRW, ARW, RAF, ORF, RW2, PEF, DNG, SRW are previewed from their embedded JPEG. RAW+JPEG pairs (and `.xmp` sidecars) are favourited together; turn that off in Settings if you only hand out JPEGs.
 - **Rebindable shortcuts**, a scrub bar, and go-to-photo by number.
-- **Google Drive** by pointing the favourites folder inside Google Drive for desktop. The app itself never touches your Google account.
+- **Cloud uploads** to Google Drive, OneDrive, Dropbox and Nextcloud/WebDAV, all at once. Switch each one on or off in Settings › Cloud uploads or from the upload chip in the bottom bar. Offline at the venue? Uploads wait and resume by themselves, even after a restart. Sign-ins live in the OS keychain, and files go straight from your computer to each service.
 - **Auto-update** from GitHub Releases, at most one check a day; installing waits for you to click Restart.
 
 ## Shortcuts
@@ -71,7 +71,7 @@ src/
   processor/        folder scanning, sessions, favourites, settings
   imaging/          decoding, RAW previews, parallel prefetch
   models/           persisted state (one state.json in the OS data dir)
-  integrations/     auto-updater
+  integrations/     auto-updater, cloud upload worker (Drive, OneDrive, Dropbox, WebDAV)
 tests/              whole-flow tests, including egui_kittest UI tests
 plans/              design docs and per-phase plans
 ```

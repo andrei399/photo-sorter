@@ -1,4 +1,4 @@
-//! Settings window, layout G2: left nav (Shortcuts, Storage), grouped shortcut rows with key chips.
+//! Settings window, layout G2: left nav (Shortcuts, Storage, Cloud uploads), grouped shortcut rows with key chips.
 
 use super::sessions::{primary_button, secondary_button};
 use crate::app::{KeyCapture, PhotoSorterApp, SettingsDraft, SettingsPage};
@@ -57,6 +57,7 @@ pub(super) fn settings_dialog(ui: &mut egui::Ui, app: &mut PhotoSorterApp, draft
                             match draft.page {
                                 SettingsPage::Shortcuts => shortcuts_page(ui, draft, problem),
                                 SettingsPage::Storage => pick_root = storage_page(ui, draft),
+                                SettingsPage::Cloud => super::cloud::cloud_page(ui, app, draft),
                             }
                         });
                     });
@@ -129,6 +130,7 @@ fn nav(ui: &mut egui::Ui, draft: &mut SettingsDraft, shortcuts_have_problem: boo
                 for (page, label) in [
                     (SettingsPage::Shortcuts, "Shortcuts"),
                     (SettingsPage::Storage, "Storage"),
+                    (SettingsPage::Cloud, "Cloud uploads"),
                 ] {
                     let is_current = draft.page == page;
                     let item = ui.add(
@@ -160,6 +162,8 @@ fn nav(ui: &mut egui::Ui, draft: &mut SettingsDraft, shortcuts_have_problem: boo
                     if item.clicked() {
                         draft.page = page;
                         draft.capture = None;
+                        draft.webdav_form = None;
+                        draft.confirm_disconnect = None;
                     }
                 }
                 ui.with_layout(Layout::bottom_up(Align::Min), |ui| {

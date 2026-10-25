@@ -84,6 +84,7 @@ pub fn create_session(store: &mut Store, name: &str, dir: Option<PathBuf>) -> Ap
         name,
         dir,
         favourites: BTreeMap::new(),
+        remote_file_ids: BTreeMap::new(),
     });
     store.state.active_session_id = Some(id);
     store.save()?;

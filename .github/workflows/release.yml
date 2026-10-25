@@ -3,7 +3,9 @@
 #
 # Secrets: CARGO_PACKAGER_SIGN_PRIVATE_KEY, CARGO_PACKAGER_SIGN_PRIVATE_KEY_PASSWORD (updater signing),
 #   APPLE_CERTIFICATE, APPLE_CERTIFICATE_PASSWORD, APPLE_SIGNING_IDENTITY, APPLE_ID, APPLE_PASSWORD, APPLE_TEAM_ID,
-#   AZURE_CLIENT_ID, AZURE_CLIENT_SECRET, AZURE_TENANT_ID.
+#   AZURE_CLIENT_ID, AZURE_CLIENT_SECRET, AZURE_TENANT_ID,
+#   GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, ONEDRIVE_CLIENT_ID, DROPBOX_APP_KEY (cloud uploads; a missing one
+#   leaves that provider unavailable in the build).
 # Variables: UPDATER_PUBKEY, AZURE_SIGNING_ENDPOINT, AZURE_SIGNING_ACCOUNT, AZURE_CERTIFICATE_PROFILE.
 # Missing Apple/Azure secrets produce unsigned installers; without the updater key there's no latest.json and
 # the builds don't auto-update.
@@ -60,6 +62,11 @@ jobs:
       AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
       AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
       AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+      # Compiled in as the apps' OAuth client ids; desktop clients can't keep them secret, PKCE protects the sign-in.
+      GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+      GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+      ONEDRIVE_CLIENT_ID: ${{ secrets.ONEDRIVE_CLIENT_ID }}
+      DROPBOX_APP_KEY: ${{ secrets.DROPBOX_APP_KEY }}
       # linuxdeploy is itself an AppImage, and runners have no FUSE.
       APPIMAGE_EXTRACT_AND_RUN: 1
     steps:

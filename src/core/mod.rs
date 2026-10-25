@@ -2,28 +2,47 @@
 //! One thread owns the `Store`, so every state change is serialized without locks.
 
 use crate::error::{AppError, AppResult};
+use crate::integrations::cloud::{
+    CloudConfig, CloudProblem, CloudReport, CloudWorker, WorkerRequest, spawn_cloud_worker,
+};
+use crate::models::cloud::{CloudProvider, WebDavServer};
 use crate::models::session::SessionId;
 use crate::models::settings::Settings;
 use crate::models::state::PersistedState;
 use crate::models::store::Store;
+use crate::processor::cloud_sync::{self, CloudStatus};
 use crate::processor::favourites::{self, MoveToTrash, ToggleOutcome};
 use crate::processor::photo_folder::{self, PhotoFolder};
 use crate::processor::sessions::{self, SessionDirInfo, SessionSummary};
 use crate::processor::settings;
-use crossbeam_channel::{Receiver, Sender, unbounded};
-use std::collections::HashSet;
+use crossbeam_channel::{Receiver, Sender, select, unbounded};
+use std::collections::{BTreeMap, HashSet};
 use std::path::PathBuf;
 
 #[derive(Debug)]
 pub enum Command {
     OpenFolder(PathBuf),
-    CreateSession { name: String, dir: Option<PathBuf> },
+    CreateSession {
+        name: String,
+        dir: Option<PathBuf>,
+    },
     InspectSessionDir(PathBuf),
     SetActiveSession(SessionId),
     ForgetSession(SessionId),
     ToggleFavourite(PathBuf),
     UpdateSettings(Settings),
     DetectGoogleDrive,
+    /// Opens the provider's sign-in page in the browser.
+    ConnectCloud(CloudProvider),
+    ConnectWebDav {
+        server: WebDavServer,
+        password: String,
+    },
+    DisconnectCloud(CloudProvider),
+    SetCloudUploads {
+        provider: CloudProvider,
+        enabled: bool,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -59,6 +78,13 @@ pub enum Event {
     SettingsUpdateFailed(AppError),
     /// Suggested favourites root inside a local Google Drive for desktop folder, if one exists.
     GoogleDriveDetected(Option<PathBuf>),
+    /// One entry per provider, in `CloudProvider::ALL` order. Sent at startup and whenever any of it changes.
+    CloudStatusChanged(Vec<CloudStatus>),
+    /// Kept apart from `Error` so Settings can show it next to the provider.
+    CloudConnectFailed {
+        provider: CloudProvider,
+        error: String,
+    },
     Error(AppError),
 }
 
@@ -70,17 +96,34 @@ pub struct CoreHandle {
 /// `wake_ui` runs after every event (eframe passes `ctx.request_repaint`; tests pass a no-op).
 /// The core thread exits when the UI drops its `CoreHandle`.
 pub fn spawn_core(state_path: PathBuf, wake_ui: impl Fn() + Send + 'static) -> AppResult<CoreHandle> {
-    spawn_core_with_trash(state_path, favourites::move_to_os_trash, wake_ui)
+    spawn_core_with(
+        state_path,
+        favourites::move_to_os_trash,
+        CloudConfig::production(),
+        wake_ui,
+    )
 }
 
-pub fn spawn_core_with_trash(
+pub fn spawn_core_with(
     state_path: PathBuf,
     move_to_trash: MoveToTrash,
+    cloud_config: CloudConfig,
     wake_ui: impl Fn() + Send + 'static,
 ) -> AppResult<CoreHandle> {
     let mut store = Store::load_or_default(state_path)?;
     let (command_tx, command_rx) = unbounded::<Command>();
     let (event_tx, event_rx) = unbounded::<Event>();
+    let connectable = CloudProvider::ALL
+        .into_iter()
+        .filter(|provider| cloud_config.can_connect(*provider))
+        .collect();
+    let mut cloud = CloudSync {
+        worker: spawn_cloud_worker(cloud_config)?,
+        connectable,
+        reports_applied: 0,
+        problems: BTreeMap::new(),
+        last_statuses: Vec::new(),
+    };
 
     std::thread::Builder::new().name("core".into()).spawn(move || {
         let emit_all = |events: Vec<Event>| {
@@ -92,10 +135,22 @@ pub fn spawn_core_with_trash(
         };
         let mut startup = vec![Event::Snapshot(store.state.clone())];
         startup.extend(sessions_and_favourites(&mut store));
+        startup.extend(cloud.sync(&store));
         startup.extend(photo_folder::reopen_last_folder(&store).map(Event::FolderOpened));
         emit_all(startup);
-        for command in command_rx {
-            emit_all(handle(&mut store, command, move_to_trash));
+        loop {
+            let mut events = select! {
+                recv(command_rx) -> command => match command {
+                    Ok(command) => handle(&mut store, &mut cloud, command, move_to_trash),
+                    Err(_) => return,
+                },
+                recv(cloud.worker.reports) -> report => match report {
+                    Ok((sequence, report)) => cloud.apply(&mut store, sequence, report),
+                    Err(_) => return,
+                },
+            };
+            events.extend(cloud.sync(&store));
+            emit_all(events);
         }
     })?;
 
@@ -105,7 +160,52 @@ pub fn spawn_core_with_trash(
     })
 }
 
-fn handle(store: &mut Store, command: Command, move_to_trash: MoveToTrash) -> Vec<Event> {
+/// The core's side of uploading: keeps the worker's plan current and the UI's status fresh.
+struct CloudSync {
+    worker: CloudWorker,
+    connectable: Vec<CloudProvider>,
+    reports_applied: u64,
+    /// Only the worker knows about network trouble, so this isn't persisted.
+    problems: BTreeMap<CloudProvider, CloudProblem>,
+    last_statuses: Vec<CloudStatus>,
+}
+
+impl CloudSync {
+    fn request(&self, request: WorkerRequest) {
+        // The worker thread only stops when this sender is dropped, so the send can't fail before then.
+        let _ = self.worker.requests.send(request);
+    }
+
+    /// Hands the worker the current job list; returns a status event when something the UI shows changed.
+    fn sync(&mut self, store: &Store) -> Option<Event> {
+        let plan = cloud_sync::build_cloud_plan(&store.state, self.reports_applied);
+        let statuses = cloud_sync::cloud_statuses(&store.state, &plan, &self.problems, |provider| {
+            self.connectable.contains(&provider)
+        });
+        self.request(WorkerRequest::Plan(plan));
+        (statuses != self.last_statuses).then(|| {
+            self.last_statuses = statuses.clone();
+            Event::CloudStatusChanged(statuses)
+        })
+    }
+
+    fn apply(&mut self, store: &mut Store, sequence: u64, report: CloudReport) -> Vec<Event> {
+        self.reports_applied = sequence;
+        if let CloudReport::Problem { provider, problem } = &report {
+            match problem {
+                Some(problem) => self.problems.insert(*provider, problem.clone()),
+                None => self.problems.remove(provider),
+            };
+        }
+        match cloud_sync::apply_cloud_report(store, report) {
+            Ok(None) => Vec::new(),
+            Ok(Some((provider, error))) => vec![Event::CloudConnectFailed { provider, error }],
+            Err(error) => vec![Event::Error(error)],
+        }
+    }
+}
+
+fn handle(store: &mut Store, cloud: &mut CloudSync, command: Command, move_to_trash: MoveToTrash) -> Vec<Event> {
     let result = match command {
         Command::OpenFolder(folder) => {
             photo_folder::open_photo_folder(store, &folder).map(|opened| vec![Event::FolderOpened(opened)])
@@ -130,6 +230,28 @@ fn handle(store: &mut Store, command: Command, move_to_trash: MoveToTrash) -> Ve
         Command::DetectGoogleDrive => Ok(vec![Event::GoogleDriveDetected(
             settings::detect_google_drive_favourites_root(),
         )]),
+        Command::ConnectCloud(provider) => {
+            cloud.request(WorkerRequest::Connect(provider));
+            Ok(Vec::new())
+        }
+        Command::ConnectWebDav { server, password } => match reqwest::Url::parse(&server.url) {
+            Ok(url) if matches!(url.scheme(), "https" | "http") => {
+                cloud.request(WorkerRequest::ConnectWebDav { server, password });
+                Ok(Vec::new())
+            }
+            _ => Ok(vec![Event::CloudConnectFailed {
+                provider: CloudProvider::WebDav,
+                error: format!("\"{}\" isn't a web address", server.url),
+            }]),
+        },
+        Command::DisconnectCloud(provider) => cloud_sync::disconnect_cloud(store, provider).map(|()| {
+            cloud.problems.remove(&provider);
+            cloud.request(WorkerRequest::Disconnect(provider));
+            Vec::new()
+        }),
+        Command::SetCloudUploads { provider, enabled } => {
+            cloud_sync::set_cloud_uploads_enabled(store, provider, enabled).map(|()| Vec::new())
+        }
     };
     result.unwrap_or_else(|error| vec![Event::Error(error)])
 }
